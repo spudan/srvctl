@@ -171,6 +171,12 @@ _log_check_rotation() {
     mode=$(stat -c '%a' "$file")
     (((8#$mode & 8#037) == 0)) || bad+=("$file ($mode)")
   done
+  # The directory is excluded from AIDE (its timestamps change on rotation),
+  # so its ownership and mode are checked here.
+  if [[ -d /var/log/audit ]]; then
+    mode=$(stat -c '%U %a' /var/log/audit)
+    [[ $mode == "root 700" || $mode == "root 750" ]] || bad+=("/var/log/audit ($mode)")
+  fi
   if ((${#bad[@]})); then
     result_warn "Logdateien zu offen: ${bad[*]}"
   fi

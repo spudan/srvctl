@@ -181,6 +181,7 @@ EOF
 !/var/lib/crowdsec/data/crowdsec\.db(-shm|-wal|-journal)?\$ f
 
 # Wachsende Logdateien (Rechte prüft das Modul logging, Zugriffe protokolliert auditd)
+!/var/log/audit\$ d
 !/var/log/audit/audit\.log(\.[0-9]+)?\$ f
 !/var/log/(crowdsec|crowdsec_api|sudo|srvctl)\.log(\.[0-9]+(\.gz)?)?\$ f
 !/var/log/aide/aideinit\.(log|errors)\$ f
