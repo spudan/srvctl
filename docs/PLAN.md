@@ -7,7 +7,7 @@ BSI IT-Grundschutz SYS.1.3, Mozilla/ssh-audit-Empfehlungen für SSH. Gemessen wi
 
 | # | Modul | Abhängig von | Status |
 |---|---|---|---|
-| 1 | `base` – Updates, Zeit, Locale, Paketquellen, Pakete | – | geplant |
+| 1 | `base` – Updates, Zeit, Locale, Paketquellen, Pakete | – | umgesetzt, Test auf VPS offen |
 | 2 | `users` – Admin-Benutzer, sudo, root, Passwort-Richtlinien | – | geplant |
 | 3 | `ssh` – SSH-Härtung | users | geplant |
 | 4 | `firewall` – nftables | – | geplant |
@@ -29,11 +29,15 @@ Später (Dienst-Module, nach der Härtung): `docker`, ggf. `nginx`, `tailscale`,
   Automatischer Neustart pro Server über `BASE_AUTO_REBOOT="03:30"`.
 - `check`: ausstehende Updates, ausstehende Sicherheitsupdates, Neustart nötig, unattended-upgrades aktiv.
 - Mail-Benachrichtigung: vorerst nicht (braucht Mailversand, ggf. eigenes Modul später).
+- Debians Standard spielt auch reguläre Stable-Updates ein (`label=Debian`); srvctl leert die Liste per `#clear` und setzt nur Security-Quellen.
+- **needrestart** startet betroffene Dienste nach Updates automatisch neu (`BASE_NEEDRESTART=auto`, abschaltbar mit `list`).
+- `check` nutzt `debsecan` (Pakete mit behobenen, aber nicht eingespielten Lücken).
 
 ### Zeitsynchronisation
 - **chrony mit NTS** ersetzt systemd-timesyncd.
 - Server per `BASE_NTS_SERVERS` (Standard: PTB `ptbtime1-3.ptb.de`, Netnod, Cloudflare).
 - Firewall-Hinweis: ausgehend UDP 123 und TCP 4460.
+- `authselectmode require`: Nur NTS-authentifizierte Quellen werden zur Synchronisation genutzt; der Debian-Pool wird auskommentiert.
 - `check`: chrony aktiv, synchronisiert, NTS-Authentifizierung aktiv (`chronyc -N authdata`).
 
 ### Zeitzone und Locale

@@ -129,6 +129,22 @@ ensure_line() {
   write_file "$file" <<<"${content}${line}"
 }
 
+# file_sed FILE SED_EXPR... - edits FILE with "sed -E" expressions via
+# write_file (backup, dry-run, FILE_CHANGED). Missing files count as empty.
+file_sed() {
+  local file=$1 content
+  shift
+  local -a args=()
+  local expr
+  for expr; do args+=(-e "$expr"); done
+  if [[ -f $file ]]; then
+    content=$(sed -E "${args[@]}" -- "$file") || return 1
+  else
+    content=$(sed -E "${args[@]}" </dev/null) || return 1
+  fi
+  write_file "$file" <<<"$content"
+}
+
 # template_render FILE - prints FILE with {{NAME}} replaced by variable NAME.
 # Fails if a referenced variable is not set.
 template_render() {
