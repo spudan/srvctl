@@ -25,6 +25,9 @@ readonly _SSH_PUBKEY_ALGS_SK="sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@
 
 _ssh_port() { cfg_get SSH_PORT 22; }
 
+# Groups allowed to log in: the admins (sshusers) plus SSH_ALLOW_GROUPS
+_ssh_allow_groups() { echo $_USERS_GROUP $(cfg_get SSH_ALLOW_GROUPS ""); }
+
 # Legal notice (German + English; Lynis looks for English key words)
 _ssh_banner_text() {
   cfg_get SSH_BANNER_TEXT "Zugriff nur für berechtigte Personen. Alle Aktivitäten werden protokolliert.
@@ -45,7 +48,7 @@ passwordauthentication no
 kbdinteractiveauthentication no
 pubkeyauthentication yes
 authenticationmethods publickey
-allowgroups $_USERS_GROUP
+allowgroups $(_ssh_allow_groups)
 maxauthtries 3
 logingracetime 30
 maxstartups 10:30:60
@@ -163,7 +166,8 @@ _ssh_check_config() {
     result_fail "$_SSH_DROPIN fehlt – 'srvctl setup ssh'"
   fi
   while read -r key want; do
-    have=$(awk -v k="$key" '$1 == k { $1 = ""; sub(/^ /, ""); print; exit }' <<<"$effective")
+    # Some keys (e.g. allowgroups) are listed once per value
+    have=$(awk -v k="$key" '$1 == k { $1 = ""; sub(/^ /, ""); v = v (v == "" ? "" : " ") $0 } END { print v }' <<<"$effective")
     if [[ $have != "$want" ]]; then
       if [[ $key == *algorithms || $key == ciphers || $key == macs ]]; then
         have=$(_ssh_list_diff "$have" "$want")
@@ -298,6 +302,97 @@ _ssh_test_dropin() {
   if ! out=$(sshd -t -f "$test_conf" 2>&1); then
     result_fail "Neue sshd-Konfiguration ist ungültig: $out"
     return 1
+  fi
+}
+
+# --- Pre-check against the existing system ----------------------------------------
+
+# Accounts that can log in by SSH today: "USER HAS_KEY HAS_PASSWORD"
+_ssh_login_accounts() {
+  local user home shell hash key pw shells
+  shells=" $(grep -v '^#' /etc/shells 2>/dev/null | paste -sd ' ') "
+  while IFS=: read -r user _ _ _ _ home shell; do
+    [[ $user == root ]] && continue
+    # Only real login shells (e.g. not /usr/sbin/nologin or /bin/sync)
+    [[ $shells == *" $shell "* ]] || continue
+    case $shell in */nologin | */false) continue ;; esac
+    hash=$(getent shadow "$user" | cut -d: -f2)
+    key=0 pw=0
+    if [[ -s $home/.ssh/authorized_keys || -s $home/.ssh/authorized_keys2 ]]; then key=1; fi
+    # Usable password: not empty, not locked ("!...") or disabled ("*")
+    if [[ -n $hash && ${hash:0:1} != "!" && ${hash:0:1} != "*" ]]; then pw=1; fi
+    ((key || pw)) && echo "$user $key $pw"
+  done </etc/passwd
+  return 0
+}
+
+# _ssh_in_groups USER GROUP... - true if USER is member of one of the groups
+_ssh_in_groups() {
+  local user=$1 group
+  shift
+  local mine=" $(id -nG "$user" 2>/dev/null) "
+  for group; do
+    [[ $mine == *" $group "* ]] && return 0
+  done
+  return 1
+}
+
+ssh::precheck() {
+  local effective allowed user key pw
+  effective=$(sshd -T 2>/dev/null) || {
+    precheck_block "sshd -T schlägt fehl – die bestehende SSH-Konfiguration ist ungültig"
+    return 0
+  }
+  read -ra allowed <<<"$(_ssh_allow_groups)"
+
+  # Port: Port is cumulative in sshd_config, a second Port line adds a port
+  local ports
+  ports=$(awk '$1 == "port" { print $2 }' <<<"$effective" | sort -un | paste -sd ' ')
+  if [[ $ports != "$(_ssh_port)" ]]; then
+    precheck_block "sshd lauscht derzeit auf Port $ports, SSH_PORT ist $(_ssh_port) – sshd würde auf beiden lauschen, die Firewall aber nur $(_ssh_port) öffnen. Bisherigen Port übernehmen: SSH_PORT=$ports (bzw. bereinigen)"
+  fi
+
+  # Accounts that would lose SSH access
+  local -a outside=() password_only=()
+  local -A groups=()
+  while read -r user key pw; do
+    if ! _ssh_in_groups "$user" "${allowed[@]}"; then
+      outside+=("$user")
+      groups[$(id -gn "$user")]=1
+    elif ((!key)); then
+      password_only+=("$user")
+    fi
+  done < <(_ssh_login_accounts)
+  if ((${#outside[@]})); then
+    precheck_block "Diese Konten können sich heute per SSH anmelden und wären danach ausgesperrt (AllowGroups ${allowed[*]}): ${outside[*]} – erlauben mit SSH_ALLOW_GROUPS=\"$(echo $(cfg_get SSH_ALLOW_GROUPS "") ${!groups[*]})\" oder Zugang bewusst entziehen"
+  fi
+  if ((${#password_only[@]})); then
+    precheck_block "Diese Konten melden sich nur mit Passwort an und wären ausgesperrt (nur noch Schlüssel): ${password_only[*]} – vorher SSH-Schlüssel hinterlegen"
+  fi
+
+  local akf
+  akf=$(awk '$1 == "authorizedkeysfile" { $1 = ""; print }' <<<"$effective")
+  if [[ " $akf " != *" .ssh/authorized_keys "* && " $akf " != *" %h/.ssh/authorized_keys "* ]]; then
+    precheck_block "AuthorizedKeysFile ist '${akf# }' – srvctl legt die Admin-Schlüssel in ~/.ssh/authorized_keys ab, die Anmeldung würde scheitern"
+  fi
+
+  local allowusers
+  allowusers=$(awk '$1 == "allowusers" { print $2 }' <<<"$effective" | paste -sd ' ')
+  if [[ -n $allowusers ]]; then
+    precheck_block "Bestehendes AllowUsers ($allowusers) gilt zusätzlich zu AllowGroups – beide müssen passen. AllowUsers entfernen oder Admins aufnehmen"
+  fi
+  local denied
+  denied=$(awk '$1 == "denygroups" || $1 == "denyusers" { print $2 }' <<<"$effective" | paste -sd ' ')
+  for user in $(_users_admins); do
+    if [[ " $denied " == *" $user "* ]] || _ssh_in_groups "$user" $denied; then
+      precheck_block "Admin $user wird durch DenyUsers/DenyGroups ($denied) ausgesperrt"
+    fi
+  done
+
+  local matches
+  matches=$(grep -lE '^[[:space:]]*Match[[:space:]]' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/*.conf 2>/dev/null | grep -v "$_SSH_DROPIN" | paste -sd ' ')
+  if [[ -n $matches ]]; then
+    precheck_info "Bestehende Match-Blöcke ($matches) gelten weiterhin für die betroffenen Benutzer"
   fi
 }
 

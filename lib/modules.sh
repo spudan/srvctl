@@ -192,6 +192,10 @@ run_action() {
   done
   ((${#run[@]})) || return 0
 
+  if [[ $action == setup || $action == configure ]]; then
+    modules_precheck "$action" "${run[@]}" || return 0
+  fi
+
   if [[ $action != check ]]; then
     lock_acquire
     if ((!DRY_RUN && !ASSUME_YES)); then
@@ -275,6 +279,66 @@ modules_status() {
   revert_pending_notice
   echo "Details: srvctl check <modul>"
   return "$rc"
+}
+
+# modules_precheck ACTION MODULE... - runs <module>::precheck for every module
+# and shows the findings. Returns 1 if a BLOCK finding stops the run
+# (unless --force); --dry-run only reports what would stop it.
+modules_precheck() {
+  local action=$1 mod status msg blocks=0 warns=0
+  shift
+  local file="${RUN_DIR}/precheck"
+  : >"$file"
+  for mod; do
+    module_has_action "$mod" precheck || continue
+    (
+      CURRENT_MODULE=$mod
+      CURRENT_ACTION=$action
+      "${mod}::precheck" "$action"
+    ) >/dev/null 2>&1
+  done
+  [[ -s $file ]] || return 0
+
+  log_step "Vorabprüfung (bestehende Konfiguration)"
+  while IFS=$'\t' read -r status mod msg; do
+    case $status in
+      BLOCK)
+        ((++blocks))
+        _log_file BLOCK "$mod: $msg"
+        printf '%s[STOP]%s %s: %s\n' "${C_BOLD}${C_RED}" "$C_RESET" "$mod" "$msg" >&2
+        ;;
+      WARN)
+        ((++warns))
+        _log_file WARN "$mod: $msg"
+        printf '%s[WARN]%s %s: %s\n' "$C_YELLOW" "$C_RESET" "$mod" "$msg" >&2
+        ;;
+      INFO)
+        _log_file INFO "$mod: $msg"
+        ((QUIET)) || printf '%s[INFO]%s %s: %s\n' "$C_CYAN" "$C_RESET" "$mod" "$msg"
+        ;;
+    esac
+  done <"$file"
+
+  if ((blocks)); then
+    if ((FORCE)); then
+      log_warn "$blocks Konflikt(e) mit dem Bestand werden wegen --force übergangen"
+    elif ((DRY_RUN)); then
+      log_warn "Ohne --dry-run würde hier wegen $blocks Konflikt(en) abgebrochen"
+    else
+      while IFS=$'\t' read -r status mod msg; do
+        [[ $status == BLOCK ]] && CURRENT_MODULE=$mod result_fail "Abgebrochen: $msg"
+      done <"$file"
+      log_error "Keine Änderungen vorgenommen. Konflikte beheben (meist per Konfiguration) oder bewusst mit --force fortfahren."
+      return 1
+    fi
+  fi
+  if ((warns)) && ((!DRY_RUN)); then
+    confirm "Trotz der $warns Hinweis(e) fortfahren?" || {
+      log_warn "Abgebrochen – keine Bestätigung"
+      exit 1
+    }
+  fi
+  return 0
 }
 
 modules_list() {

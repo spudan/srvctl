@@ -315,6 +315,31 @@ Jede Änderung wird vor dem Neuladen mit `sshd -t` geprüft; neu geladen wird mi
 - Zweiter Lauf auf dem VPS: **Hardening-Index 88**, alle 11 Module grün.
 - Mit dem entpackten Paket gegen den (ungehärteten) Entwicklungsrechner getestet: Index 65, Teilausnahmen greifen.
 
+## Bestehende Server (begonnen 2026-10-09)
+
+Framework: `<modul>::precheck` vor `setup`/`configure`, Stufen STOP (bricht ab, auch mit `--yes`; `--force` übergeht),
+WARN (Rückfrage), INFO (übernommen). Prinzip: **übernehmen statt überschreiben**, sonst anhalten und die passende
+Konfigurationszeile nennen.
+
+| Modul | Fall | Behandlung | Stand |
+|---|---|---|---|
+| firewall | öffentliche Dienste würden blockiert | STOP + Vorschlag `FIREWALL_TCP_PORTS`/`FIREWALL_BLOCK_OK` | umgesetzt |
+| firewall | eigene Regeln in `/etc/nftables.conf` | STOP (Regeln nach `firewall.d` verschieben) | umgesetzt |
+| firewall | Docker ohne docker-Modul, ufw/firewalld aktiv | STOP | umgesetzt |
+| ssh | anderer Port aktiv | STOP + Vorschlag `SSH_PORT` | umgesetzt |
+| ssh | Konten außerhalb der erlaubten Gruppen (git, Backup, SFTP …) | STOP + Vorschlag `SSH_ALLOW_GROUPS` | umgesetzt |
+| ssh | Konten nur mit Passwort, abweichendes `AuthorizedKeysFile`, `AllowUsers`, Deny-Regeln gegen Admins | STOP | umgesetzt |
+| services | Benutzer-Crontabs | in `cron.allow` übernommen | umgesetzt |
+| services | Mailserver öffentlich | STOP, Entscheidung `SERVICES_MAIL_SERVER=1/0` | umgesetzt |
+| services | rpcbind bei NFS-Mounts | bleibt aktiv | umgesetzt |
+| base | ntp/ntpsec/openntpd, eigene Zeitserver, Zeitzonenwechsel | WARN; `BASE_TIME_REQUIRE_NTS`, `BASE_TIME_SERVERS` | umgesetzt |
+| base | eigene Quellen in unattended-upgrades | übernommen | umgesetzt |
+| users | strengere pwquality-Regeln, nologin für Dienstkonten mit Shell (git), Home 750 (public_html) | | offen |
+| crowdsec | fail2ban parallel, eigene Profile/Benachrichtigungen, iptables-Bouncer, Port 8080 | | offen |
+| integrity | bestehende AIDE-Mailberichte | | offen |
+| kernel | rp_filter bei Routern/VPN, benötigte Module (sctp, udf), kexec/kdump | | offen |
+| audit | eigenes `custom.prf` | | offen |
+
 ## Später: Benachrichtigung und Berichte (noch zu planen)
 
 Bisher landen Meldungen, Logs und Berichte nur lokal auf dem Server. Sie müssen verarbeitet und/oder verschickt werden,

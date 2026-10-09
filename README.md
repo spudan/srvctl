@@ -43,6 +43,7 @@ srvctl backups                 # vorhandene Backups anzeigen
 | `-v`, `--verbose` | Ausführliche Ausgabe, zeigt auch ausgeführte Befehle |
 | `-q`, `--quiet` | Nur Warnungen, Fehler und Zusammenfassung (für cron) |
 | `--fresh` | Zwischengespeicherte Ergebnisse ignorieren (z. B. Lynis-Bericht) |
+| `--force` | Konflikte der Vorabprüfung (`[STOP]`) bewusst übergehen |
 | `--no-color` | Keine Farben (automatisch, wenn die Ausgabe kein Terminal ist) |
 | `-c`, `--config DATEI` | Zusätzliche Konfigurationsdatei |
 | `--host NAME` | Host-Konfiguration für NAME statt `hostname -s` |
@@ -73,6 +74,29 @@ startet ein systemd-Timer (Standard 5 Minuten, `SRVCTL_CONFIRM_TIMEOUT`):
    (z. B. um sshd neu zu laden). Angemeldete Benutzer werden per `wall` informiert.
 
 Der Timer startet auch, wenn srvctl nach der Änderung abbricht. Kann er nicht gestartet werden, wird sofort zurückgesetzt.
+
+## Bestehende Server
+
+srvctl ist zuerst für frische Server entstanden. Auf Servern, die schon laufen, prüft jedes Modul vor
+`setup`/`configure`, was mit dem Bestand kollidiert (**Vorabprüfung**):
+
+| Stufe | Bedeutung | Verhalten |
+|---|---|---|
+| `[STOP]` | Würde etwas kaputt machen (Dienste blockiert, Benutzer ausgesperrt, Mails abgewiesen) | bricht ab – auch mit `--yes`; meist per Konfiguration lösen, bewusst übergehen mit `--force` |
+| `[WARN]` | Bestehende Einstellung wird ersetzt (z. B. Zeitzone, Zeitdienst) | Rückfrage (mit `--yes` bestätigt) |
+| `[INFO]` | Wird übernommen (z. B. Crontab-Benutzer, eigene Update-Quellen, fremde Firewall-Tabellen) | nur Hinweis |
+
+Empfohlener Ablauf:
+
+```bash
+srvctl check all          # Ist-Zustand, ändert nichts
+srvctl -n setup all       # Vorabprüfung und alle geplanten Änderungen anzeigen
+# Konflikte über config/hosts/<host>.conf lösen (die Meldungen nennen die passende Zeile)
+srvctl setup base         # dann Modul für Modul
+```
+
+Typische Einstellungen für Bestandsserver: `FIREWALL_TCP_PORTS`, `FIREWALL_BLOCK_OK`, `SSH_PORT`, `SSH_ALLOW_GROUPS`,
+`SERVICES_MAIL_SERVER`, `SERVICES_CRON_USERS`, `BASE_TIME_REQUIRE_NTS`, `BASE_TIME_SERVERS`.
 
 ## Konfiguration
 
@@ -106,6 +130,7 @@ nginx::setup()        { pkg_install nginx; svc_enable nginx
 nginx::configure()    { ...; }
 nginx::rollback()     { backup_restore_module nginx; svc_reload nginx; }   # optional
 nginx::after_revert() { svc_reload nginx; }   # optional, nach Bestätigungs-Timer
+nginx::precheck()     { …; }   # optional, vor setup/configure: precheck_block/_warn/_info
 ```
 
 Regeln:
@@ -130,6 +155,7 @@ Regeln:
 | Eingaben | `ask VAR FRAGE [STANDARD] [PRÜFFUNKTION]`, `ask_password VAR FRAGE [PRÜFFUNKTION]`, `ask_lines VAR FRAGE [PRÜFFUNKTION]`, `ask_choice VAR FRAGE KEY TEXT ...`, `has_tty` |
 | Zustand | `state_path MODUL [NAME]` (Datei in `/var/lib/srvctl/<modul>/`, mit `write_file` schreiben), `state_last_action MODUL` |
 | Aussperr-Schutz | `revert_timer_arm` (nach riskanter Änderung) |
+| Vorabprüfung | `precheck_block`, `precheck_warn`, `precheck_info` (nur in `<modul>::precheck`, darf nichts ändern) |
 | Firewall | `firewall_rules MODUL <<<'REGELN'` (leer = entfernen) |
 | Dateien | `write_file PFAD [MODUS] [BESITZER] <<<"$inhalt"`, `conf_get DATEI KEY [SEP]`, `conf_set DATEI KEY WERT [SEP]`, `ensure_line DATEI ZEILE`, `template_render DATEI` – nach Änderungen ist `FILE_CHANGED=1` |
 | Backups | `backup_file PFAD`, `backup_restore PFAD [LAUF]`, `backup_restore_module MODUL` |

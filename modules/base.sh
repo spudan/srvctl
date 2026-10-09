@@ -23,6 +23,8 @@ _base_nts_servers() {
   cfg_get BASE_NTS_SERVERS "ptbtime1.ptb.de ptbtime2.ptb.de ptbtime3.ptb.de nts.netnod.se time.cloudflare.com"
 }
 
+_base_time_require_nts() { [[ $(cfg_get BASE_TIME_REQUIRE_NTS 1) == 1 ]]; }
+
 _base_packages_install() {
   local pkgs
   pkgs=$(cfg_get BASE_PACKAGES_INSTALL "needrestart debsecan apt-listchanges ca-certificates debsums apt-show-versions")
@@ -62,9 +64,9 @@ _base_validate() {
       ok=1
     }
   done
-  for server in $(_base_nts_servers); do
-    [[ $server =~ ^[A-Za-z0-9.-]+$ ]] || {
-      result_fail "BASE_NTS_SERVERS: ungültiger Servername '$server'"
+  for server in $(_base_nts_servers) $(cfg_get BASE_TIME_SERVERS ""); do
+    [[ $server =~ ^[A-Za-z0-9.:-]+$ ]] || {
+      result_fail "BASE_NTS_SERVERS/BASE_TIME_SERVERS: ungültiger Servername '$server'"
       ok=1
     }
   done
@@ -402,6 +404,21 @@ _base_check_restart() {
   fi
 }
 
+# Origins-Pattern entries configured outside srvctl that are not Debian's own
+# (e.g. Docker or a vendor repository); kept when srvctl clears the list.
+_base_foreign_origins() {
+  local tmp file
+  tmp=$(mktemp -d "${RUN_DIR}/aptconf.XXXXXX")
+  for file in /etc/apt/apt.conf.d/*; do
+    [[ -f $file ]] || continue
+    case ${file##*/} in 5[0-9]srvctl-*) continue ;; esac
+    cp -- "$file" "$tmp/"
+  done
+  apt-config -o Dir::Etc::Parts="$tmp" dump Unattended-Upgrade::Origins-Pattern 2>/dev/null |
+    sed -n 's/^Unattended-Upgrade::Origins-Pattern:: "\(.*\)";$/\1/p' | grep -v 'origin=Debian' || true
+  rm -rf -- "$tmp"
+}
+
 _base_apply_updates() {
   local reboot reboot_flag="false" reboot_time="03:30" content
   reboot=$(cfg_get BASE_AUTO_REBOOT "")
@@ -418,12 +435,18 @@ EOF
   content="// ${_BASE_HEADER}"$'\n'
   if os_is debian; then
     # Debian's default also installs regular stable updates (label=Debian).
-    content+='// Nur Sicherheitsupdates automatisch einspielen.
+    # Origins of other repositories configured elsewhere are kept.
+    local origin
+    content+='// Nur Sicherheitsupdates automatisch einspielen (Debian); andere Quellen bleiben erhalten.
 #clear Unattended-Upgrade::Origins-Pattern;
 Unattended-Upgrade::Origins-Pattern {
         "origin=Debian,codename=${distro_codename},label=Debian-Security";
         "origin=Debian,codename=${distro_codename}-security,label=Debian-Security";
-};
+'
+    while IFS= read -r origin; do
+      content+="        \"${origin}\";"$'\n'
+    done < <(_base_foreign_origins)
+    content+='};
 '
   fi
   content+="Unattended-Upgrade::Automatic-Reboot \"${reboot_flag}\";
@@ -456,12 +479,14 @@ _base_check_time() {
     result_warn "systemd-timesyncd läuft zusätzlich zu chrony"
   fi
 
-  if [[ -f $_BASE_CHRONY_LOCAL ]] && grep -q '^authselectmode require' "$_BASE_CHRONY_LOCAL"; then
+  if ! _base_time_require_nts; then
+    result_ok "chrony darf auch Zeitquellen ohne NTS nutzen (BASE_TIME_REQUIRE_NTS=0)"
+  elif [[ -f $_BASE_CHRONY_LOCAL ]] && grep -q '^authselectmode require' "$_BASE_CHRONY_LOCAL"; then
     result_ok "chrony nutzt nur authentifizierte Zeitquellen"
   else
     result_warn "chrony akzeptiert auch nicht authentifizierte Zeitquellen (authselectmode fehlt)"
   fi
-  if grep -qE '^[[:space:]]*pool[[:space:]]' "$_BASE_CHRONY_CONF" 2>/dev/null; then
+  if _base_time_require_nts && grep -qE '^[[:space:]]*pool[[:space:]]' "$_BASE_CHRONY_CONF" 2>/dev/null; then
     result_warn "Unauthentifizierter NTP-Pool in $_BASE_CHRONY_CONF aktiv"
   fi
 
@@ -500,16 +525,29 @@ _base_apply_time() {
   for server in $(_base_nts_servers); do
     sources+="server ${server} iburst nts"$'\n'
   done
+  for server in $(cfg_get BASE_TIME_SERVERS ""); do
+    sources+="server ${server} iburst"$'\n'
+  done
   write_file "$_BASE_CHRONY_SOURCES" 0644 <<<"# ${_BASE_HEADER}"$'\n'"${sources%$'\n'}"
   if ((FILE_CHANGED)); then changed=1; fi
 
-  write_file "$_BASE_CHRONY_LOCAL" 0644 <<<"# ${_BASE_HEADER}
+  if _base_time_require_nts; then
+    write_file "$_BASE_CHRONY_LOCAL" 0644 <<<"# ${_BASE_HEADER}
 # Nur authentifizierte Quellen (NTS) zur Synchronisation verwenden
 authselectmode require"
-  if ((FILE_CHANGED)); then changed=1; fi
-
-  file_sed "$_BASE_CHRONY_CONF" 's/^([[:space:]]*pool[[:space:]].*)$/# srvctl (nur NTS): \1/'
-  if ((FILE_CHANGED)); then changed=1; fi
+    if ((FILE_CHANGED)); then changed=1; fi
+    file_sed "$_BASE_CHRONY_CONF" 's/^([[:space:]]*pool[[:space:]].*)$/# srvctl (nur NTS): \1/'
+    if ((FILE_CHANGED)); then changed=1; fi
+  else
+    # Non-NTS sources allowed (BASE_TIME_REQUIRE_NTS=0): undo the restriction
+    if [[ -f $_BASE_CHRONY_LOCAL ]]; then
+      backup_file "$_BASE_CHRONY_LOCAL"
+      run_cmd rm -f -- "$_BASE_CHRONY_LOCAL"
+      changed=1
+    fi
+    file_sed "$_BASE_CHRONY_CONF" 's/^# srvctl \(nur NTS\): //'
+    if ((FILE_CHANGED)); then changed=1; fi
+  fi
 
   if svc_is_active systemd-timesyncd || svc_is_enabled systemd-timesyncd; then
     svc_disable systemd-timesyncd
@@ -597,6 +635,52 @@ _base_apply_locale() {
   fi
   if ((changed || FILE_CHANGED)); then
     result_ok "Locales eingerichtet (Systemsprache $wanted, gilt ab der nächsten Anmeldung)"
+  fi
+}
+
+# --- Pre-check against the existing system ----------------------------------------
+
+# Time servers configured outside srvctl (chrony, ntp/ntpsec, timesyncd),
+# without Debian's default pools and the configured servers
+_base_custom_time_servers() {
+  local known
+  known=" $(_base_nts_servers) $(cfg_get BASE_TIME_SERVERS "") "
+  {
+    awk '$1 ~ /^(server|pool|peer)$/ { print $2 }' "$_BASE_CHRONY_CONF" /etc/ntp.conf /etc/ntpsec/ntp.conf 2>/dev/null
+    find /etc/chrony/sources.d -maxdepth 1 -name '*.sources' ! -name "${_BASE_CHRONY_SOURCES##*/}" \
+      -exec awk '$1 ~ /^(server|pool|peer)$/ { print $2 }' {} + 2>/dev/null
+    sed -n 's/^[[:space:]]*NTP=//p' /etc/systemd/timesyncd.conf /etc/systemd/timesyncd.conf.d/*.conf 2>/dev/null | tr ' ' '\n'
+  } | grep -vE '^$|\.debian\.pool\.ntp\.org$' | sort -u | while read -r server; do
+    [[ $known == *" $server "* ]] || echo "$server"
+  done
+}
+
+base::precheck() {
+  local pkg others=() servers current tz origins
+  for pkg in ntp ntpsec openntpd; do
+    if pkg_installed "$pkg"; then others+=("$pkg"); fi
+  done
+  if ((${#others[@]})); then
+    precheck_warn "Zeitdienst ${others[*]} wird entfernt und durch chrony (NTS) ersetzt"
+  fi
+  servers=$(_base_custom_time_servers | paste -sd ' ')
+  if [[ -n $servers ]]; then
+    if _base_time_require_nts; then
+      precheck_warn "Bisherige Zeitserver ohne NTS ($servers) werden nicht mehr genutzt, nur noch NTS-Quellen. Behalten: BASE_TIME_REQUIRE_NTS=0 und BASE_TIME_SERVERS=\"$servers\""
+    else
+      precheck_warn "Bisherige Zeitserver ($servers) werden nicht übernommen – bei Bedarf in BASE_TIME_SERVERS eintragen"
+    fi
+  fi
+  current=$(timedatectl show -p Timezone --value 2>/dev/null)
+  tz=$(cfg_get BASE_TIMEZONE Europe/Berlin)
+  if [[ -n $current && $current != "$tz" ]]; then
+    precheck_warn "Zeitzone wechselt von $current auf $tz – Cron-Zeiten und Zeitstempel in Logs verschieben sich"
+  fi
+  if os_is debian; then
+    origins=$(_base_foreign_origins | paste -sd ' ')
+    if [[ -n $origins ]]; then
+      precheck_info "Eigene Quellen für automatische Updates bleiben erhalten: $origins"
+    fi
   fi
 }
 

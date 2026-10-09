@@ -30,6 +30,7 @@ USE_COLOR=auto
 CONFIG_EXTRA=""
 HOST_NAME=""
 FRESH=0
+FORCE=0
 
 usage() {
   cat <<EOF
@@ -57,6 +58,7 @@ Optionen:
   -v, --verbose                 Ausführliche Ausgabe
   -q, --quiet                   Nur Warnungen, Fehler und Zusammenfassung
       --fresh                   Zwischengespeicherte Ergebnisse ignorieren
+      --force                   Konflikte der Vorabprüfung bewusst übergehen
       --no-color                Keine Farben
   -c, --config DATEI            Zusätzliche Konfigurationsdatei laden
       --host NAME               Host-Konfiguration für NAME laden
@@ -85,6 +87,7 @@ parse_args() {
       -q | --quiet) QUIET=1 ;;
       --no-color) USE_COLOR=0 ;;
       --fresh) FRESH=1 ;;
+      --force) FORCE=1 ;;
       -c | --config)
         (($# >= 2)) || usage_error "Option $1 benötigt einen Dateinamen"
         CONFIG_EXTRA=$2

@@ -303,6 +303,61 @@ _fw_precheck() {
   fi
 }
 
+# --- Pre-check against the existing system ----------------------------------------
+
+# Debian's default /etc/nftables.conf (accept everything), whitespace removed
+readonly _FW_DEBIAN_DEFAULT='#!/usr/sbin/nft-fflushrulesettableinetfilter{chaininput{typefilterhookinputpriorityfilter;}chainforward{typefilterhookforwardpriorityfilter;}chainoutput{typefilterhookoutputpriorityfilter;}}'
+
+_fw_nftconf_is_custom() {
+  [[ -f $_FW_NFTCONF ]] || return 1
+  grep -q 'Verwaltet von srvctl' "$_FW_NFTCONF" && return 1
+  local normalized
+  normalized=$(grep -vE '^[[:space:]]*(#[^!]|$)' "$_FW_NFTCONF" | tr -d ' \t\n')
+  [[ $normalized != "$_FW_DEBIAN_DEFAULT" ]]
+}
+
+# Public listeners the new rules would block: "proto/port (process)"
+_fw_would_block() {
+  local proto port proc ok
+  ok=" $(cfg_get FIREWALL_BLOCK_OK "") "
+  while read -r proto port proc; do
+    [[ $proc == sshd ]] && continue
+    _fw_port_open "$proto" "$port" && continue
+    [[ $ok == *" $proto/$port "* ]] && continue
+    echo "$proto/$port ($proc)"
+  done < <(_fw_listeners)
+}
+
+firewall::precheck() {
+  local -a blocked
+  mapfile -t blocked < <(_fw_would_block)
+  if ((${#blocked[@]})); then
+    local tcp udp
+    tcp=$(printf '%s\n' "${blocked[@]}" | sed -n 's|^tcp/\([0-9]*\) .*|\1|p' | sort -un | paste -sd ' ')
+    udp=$(printf '%s\n' "${blocked[@]}" | sed -n 's|^udp/\([0-9]*\) .*|\1|p' | sort -un | paste -sd ' ')
+    tcp=$(echo $(cfg_get FIREWALL_TCP_PORTS "") $tcp)
+    udp=$(echo $(cfg_get FIREWALL_UDP_PORTS "") $udp)
+    precheck_block "Öffentlich erreichbare Dienste würden blockiert: ${blocked[*]}. Freigeben in config/hosts/<host>.conf:${tcp:+ FIREWALL_TCP_PORTS=\"$tcp\"}${udp:+ FIREWALL_UDP_PORTS=\"$udp\"} – oder bewusst gesperrt lassen: FIREWALL_BLOCK_OK=\"tcp/3306 …\""
+  fi
+  if _fw_nftconf_is_custom; then
+    precheck_block "$_FW_NFTCONF enthält eigene Regeln, die ersetzt würden – Regeln nach $(firewall_dir)/<name>.nft verschieben (werden in die Eingangskette eingebunden) oder bewusst mit --force ersetzen"
+  fi
+  if { cmd_exists docker || svc_exists docker; } && [[ -z ${MOD_FILE[docker]:-} ]]; then
+    precheck_block "Docker ist installiert: 'forward drop' würde das Container-Netz trennen, und veröffentlichte Ports umgehen die Firewall – erst mit einem docker-Modul"
+  fi
+  local other
+  for other in ufw firewalld; do
+    if svc_is_active "$other"; then
+      precheck_block "$other ist aktiv – zwei Firewall-Verwaltungen blockieren sich gegenseitig; $other zuerst abschalten"
+    fi
+  done
+  local tables
+  tables=$(nft list tables 2>/dev/null | awk '$3 != "srvctl" { print $2 "/" $3 }' | paste -sd ' ')
+  if [[ -n $tables ]]; then
+    precheck_info "Vorhandene nftables-Tabellen bleiben unverändert: $tables"
+  fi
+}
+
 firewall::check() {
   _fw_validate || return 0
   _fw_check_system

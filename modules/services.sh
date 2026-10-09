@@ -12,8 +12,14 @@ readonly _SVC_CRON_DIRS="/etc/cron.d /etc/cron.hourly /etc/cron.daily /etc/cron.
 # --- Configuration -------------------------------------------------------------
 
 _svc_unwanted() {
-  cfg_get SERVICES_DISABLE "avahi-daemon cups cups-browsed rpcbind nfs-server smbd nmbd snmpd bluetooth ModemManager"
+  local list
+  list=$(cfg_get SERVICES_DISABLE "avahi-daemon cups cups-browsed rpcbind nfs-server smbd nmbd snmpd bluetooth ModemManager")
+  # NFS mounts need rpcbind
+  if _svc_nfs_mounts >/dev/null; then list=${list//rpcbind/}; fi
+  echo $list
 }
+
+_svc_nfs_mounts() { findmnt -rn -t nfs,nfs4 -o TARGET 2>/dev/null | paste -sd ' ' | grep .; }
 
 # Process names allowed to listen publicly: own list + MODULE_LISTEN of all modules
 _svc_allowed() {
@@ -126,21 +132,35 @@ _svc_apply_unwanted() {
 # --- cron and at ---------------------------------------------------------------
 
 _svc_cron_installed() { [[ -f /etc/crontab ]] || pkg_installed cron || pkg_installed cronie; }
+
+# Users with an own crontab (they keep working) plus SERVICES_CRON_USERS
+_svc_cron_users() {
+  {
+    echo root
+    find /var/spool/cron/crontabs -maxdepth 1 -type f -printf '%f\n' 2>/dev/null
+    tr ' ' '\n' <<<"$(cfg_get SERVICES_CRON_USERS "")"
+  } | grep . | sort -u
+}
 _svc_at_installed() { pkg_installed at; }
 
 # _svc_check_allow NAME FILE DENY - cron/at restricted to root?
+# _svc_check_allow NAME ALLOW DENY USERS... - access restricted to USERS?
 _svc_check_allow() {
   local name=$1 allow=$2 deny=$3
-  if [[ -f $allow && $(grep -v '^#' "$allow" | grep . | paste -sd ' ') == root ]] && [[ ! -e $deny ]]; then
-    result_ok "$name nur für root ($allow)"
+  shift 3
+  local want have
+  want=$(printf '%s\n' "$@" | sort -u | paste -sd ' ')
+  have=$(grep -v '^#' "$allow" 2>/dev/null | grep . | sort -u | paste -sd ' ')
+  if [[ -f $allow && $have == "$want" && ! -e $deny ]]; then
+    result_ok "$name nur für: $want ($allow)"
   else
-    result_warn "$name ist nicht auf root beschränkt ($allow fehlt oder $deny vorhanden)"
+    result_warn "$name nicht wie vorgesehen beschränkt (erwartet: $want; $allow: ${have:-fehlt}$([[ -e $deny ]] && echo ", $deny vorhanden"))"
   fi
 }
 
 _svc_check_cron() {
   if _svc_cron_installed; then
-    _svc_check_allow cron /etc/cron.allow /etc/cron.deny
+    _svc_check_allow cron /etc/cron.allow /etc/cron.deny $(_svc_cron_users)
     local bad=() path mode
     if [[ -f /etc/crontab ]]; then
       mode=$(stat -c '%U %a' /etc/crontab)
@@ -160,22 +180,24 @@ _svc_check_cron() {
     result_ok "cron ist nicht installiert"
   fi
   if _svc_at_installed; then
-    _svc_check_allow at /etc/at.allow /etc/at.deny
+    _svc_check_allow at /etc/at.allow /etc/at.deny root $(cfg_get SERVICES_CRON_USERS "")
   fi
 }
 
-# _svc_apply_allow ALLOW DENY
+# _svc_apply_allow ALLOW DENY USERS...
 _svc_apply_allow() {
-  write_file "$1" 0600 root:root <<<"root"
-  if [[ -e $2 ]]; then
-    backup_file "$2"
-    run_cmd rm -f -- "$2"
+  local allow=$1 deny=$2
+  shift 2
+  write_file "$allow" 0600 root:root <<<"$(printf '%s\n' "$@" | sort -u)"
+  if [[ -e $deny ]]; then
+    backup_file "$deny"
+    run_cmd rm -f -- "$deny"
   fi
 }
 
 _svc_apply_cron() {
   if _svc_cron_installed; then
-    _svc_apply_allow /etc/cron.allow /etc/cron.deny
+    _svc_apply_allow /etc/cron.allow /etc/cron.deny $(_svc_cron_users)
     local path changed=0
     if [[ -f /etc/crontab && $(stat -c '%U %a' /etc/crontab) != "root 600" ]]; then
       backup_file /etc/crontab
@@ -194,7 +216,7 @@ _svc_apply_cron() {
     if ((changed)); then result_ok "cron-Dateien auf root beschränkt"; fi
   fi
   if _svc_at_installed; then
-    _svc_apply_allow /etc/at.allow /etc/at.deny
+    _svc_apply_allow /etc/at.allow /etc/at.deny root $(cfg_get SERVICES_CRON_USERS "")
   fi
 }
 
@@ -211,9 +233,11 @@ _svc_mta() {
 _svc_check_mta() {
   local mta public
   mta=$(_svc_mta)
-  public=$(net_listeners | awk '$1 == "tcp" && $2 == 25 { print $3 }' | sort -u | paste -sd ' ')
-  if [[ -n $public ]]; then
-    result_warn "Mailserver lauscht öffentlich auf Port 25 ($public) – 'srvctl configure services' beschränkt ihn auf localhost"
+  public=$(_svc_mta_public)
+  if [[ -n $public && $(cfg_get SERVICES_MAIL_SERVER "") == 1 ]]; then
+    result_ok "Mailserver ($public) nimmt Mails von außen an (SERVICES_MAIL_SERVER=1)"
+  elif [[ -n $public ]]; then
+    result_warn "Mailserver lauscht öffentlich auf Port 25 ($public) – Mailserver? SERVICES_MAIL_SERVER=1, sonst =0 (wird auf localhost beschränkt)"
   elif [[ -n $mta ]]; then
     result_ok "Mailserver ($mta) lauscht nur lokal"
   else
@@ -221,7 +245,12 @@ _svc_check_mta() {
   fi
 }
 
+# Port 25 open to the outside? Prints the process names.
+_svc_mta_public() { net_listeners | awk '$1 == "tcp" && $2 == 25 { print $3 }' | sort -u | paste -sd ' '; }
+
 _svc_apply_mta() {
+  # Only restrict a mail server when it is explicitly not meant to receive mail
+  [[ $(cfg_get SERVICES_MAIL_SERVER "") == 0 ]] || return 0
   case $(_svc_mta) in
     postfix)
       if [[ $(postconf -h inet_interfaces 2>/dev/null) != loopback-only ]]; then
@@ -244,6 +273,36 @@ _svc_apply_mta() {
 }
 
 # --- Actions -------------------------------------------------------------------
+
+# --- Pre-check against the existing system ----------------------------------------
+
+services::precheck() {
+  local users name active=()
+  if _svc_cron_installed; then
+    users=$(_svc_cron_users | grep -vx root | paste -sd ' ')
+    if [[ -n $users ]]; then
+      precheck_info "Benutzer mit eigener Crontab werden in cron.allow übernommen: $users"
+    fi
+  fi
+  local public decision
+  public=$(_svc_mta_public)
+  decision=$(cfg_get SERVICES_MAIL_SERVER "")
+  if [[ -n $public && -z $decision ]]; then
+    precheck_block "Mailserver ($public) nimmt Mails von außen an (Port 25). Ist das ein Mailserver? SERVICES_MAIL_SERVER=1 (bleibt so) oder =0 (wird auf localhost beschränkt) setzen"
+  elif [[ -n $public && $decision == 0 ]]; then
+    precheck_warn "Mailserver ($public) wird auf localhost beschränkt und nimmt keine Mails von außen mehr an (SERVICES_MAIL_SERVER=0)"
+  fi
+  for name in $(_svc_unwanted); do
+    if _svc_running "$name"; then active+=("$name"); fi
+  done
+  if ((${#active[@]})); then
+    precheck_warn "Diese Dienste werden gestoppt und gesperrt: ${active[*]} (SERVICES_DISABLE)"
+  fi
+  local nfs
+  if nfs=$(_svc_nfs_mounts); then
+    precheck_info "rpcbind bleibt aktiv – NFS-Freigaben eingehängt: $nfs"
+  fi
+}
 
 services::check() {
   _svc_validate || return 0

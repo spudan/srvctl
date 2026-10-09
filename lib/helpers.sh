@@ -4,6 +4,19 @@
 
 cmd_exists() { command -v "$1" >/dev/null 2>&1; }
 
+# --- Pre-checks against the existing system -----------------------------------
+# Used in <module>::precheck ACTION, which runs before setup/configure and
+# must not change anything.
+#   precheck_block - conflict that would break something; stops the run
+#                    (even with --yes) unless --force is given
+#   precheck_warn  - existing setting gets replaced; needs confirmation
+#   precheck_info  - adopted or noteworthy, no confirmation needed
+
+_precheck() { printf '%s\t%s\t%s\n' "$1" "${CURRENT_MODULE:-srvctl}" "${2//$'\n'/ }" >>"${RUN_DIR}/precheck"; }
+precheck_block() { _precheck BLOCK "$1"; }
+precheck_warn() { _precheck WARN "$1"; }
+precheck_info() { _precheck INFO "$1"; }
+
 # --- Packages ----------------------------------------------------------------
 
 pkg_installed() {
