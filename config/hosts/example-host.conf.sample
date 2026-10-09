@@ -1,0 +1,3 @@
+# Beispiel für eine Host-Konfiguration.
+# Kopieren nach config/hosts/<hostname -s>.conf und anpassen.
+EXAMPLE_GREETING="Servus von diesem Host"

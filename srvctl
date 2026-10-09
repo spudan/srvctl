@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+#
+# srvctl - modular tool to check, set up and configure Debian/Ubuntu servers.
+# Runs locally on the target server. See README.md for details.
+
+set -o nounset -o pipefail
+shopt -s nullglob
+
+SRVCTL_ROOT=$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")
+readonly SRVCTL_ROOT
+readonly SRVCTL_VERSION="0.1.0"
+
+for _lib in log core config safety helpers modules menu; do
+  # shellcheck source=/dev/null
+  source "${SRVCTL_ROOT}/lib/${_lib}.sh" || {
+    echo "srvctl: lib/${_lib}.sh konnte nicht geladen werden" >&2
+    exit 3
+  }
+done
+unset _lib
+
+# Global options, set by parse_args
+ACTION=""
+TARGETS=()
+DRY_RUN=0
+ASSUME_YES=0
+VERBOSE=0
+QUIET=0
+USE_COLOR=auto
+CONFIG_EXTRA=""
+HOST_NAME=""
+
+usage() {
+  cat <<EOF
+srvctl ${SRVCTL_VERSION} – Server prüfen, einrichten und konfigurieren
+
+Aufruf:
+  srvctl [Optionen] <Aktion> [Modul ...]
+  srvctl                        Interaktives Menü
+
+Aktionen:
+  check [Modul ...|all]         System prüfen (Standard: all)
+  setup <Modul ...|all>         Module einrichten (inkl. Abhängigkeiten)
+  configure <Modul ...|all>     Module konfigurieren (inkl. Abhängigkeiten)
+  rollback <Modul ...|all>      Letzte Änderungen eines Moduls zurücksetzen
+  list                          Verfügbare Module anzeigen
+  info <Modul>                  Details zu einem Modul anzeigen
+  backups                       Vorhandene Backups anzeigen
+  menu                          Interaktives Menü (whiptail)
+
+Optionen:
+  -n, --dry-run                 Nur anzeigen, was passieren würde
+  -y, --yes                     Keine Rückfragen (für Automatisierung)
+  -v, --verbose                 Ausführliche Ausgabe
+  -q, --quiet                   Nur Warnungen, Fehler und Zusammenfassung
+      --no-color                Keine Farben
+  -c, --config DATEI            Zusätzliche Konfigurationsdatei laden
+      --host NAME               Host-Konfiguration für NAME laden
+  -h, --help                    Diese Hilfe anzeigen
+  -V, --version                 Version anzeigen
+
+Exit-Codes:
+  0 alles OK   1 Warnungen   2 Fehler   3 Framework-Fehler
+  64 Aufruffehler   130 abgebrochen
+EOF
+}
+
+usage_error() {
+  log_error "$1"
+  echo "Hilfe: srvctl --help" >&2
+  exit 64
+}
+
+parse_args() {
+  local -a pos=()
+  while (($#)); do
+    case $1 in
+      -n | --dry-run) DRY_RUN=1 ;;
+      -y | --yes) ASSUME_YES=1 ;;
+      -v | --verbose) VERBOSE=1 ;;
+      -q | --quiet) QUIET=1 ;;
+      --no-color) USE_COLOR=0 ;;
+      -c | --config)
+        (($# >= 2)) || usage_error "Option $1 benötigt einen Dateinamen"
+        CONFIG_EXTRA=$2
+        shift
+        ;;
+      --host)
+        (($# >= 2)) || usage_error "Option $1 benötigt einen Hostnamen"
+        HOST_NAME=$2
+        shift
+        ;;
+      -h | --help) ACTION=help && return 0 ;;
+      -V | --version) ACTION=version && return 0 ;;
+      --)
+        shift
+        pos+=("$@")
+        break
+        ;;
+      -*) usage_error "Unbekannte Option: $1" ;;
+      *) pos+=("$1") ;;
+    esac
+    shift
+  done
+
+  ACTION=${pos[0]:-menu}
+  TARGETS=("${pos[@]:1}")
+
+  case $ACTION in
+    check) ((${#TARGETS[@]})) || TARGETS=(all) ;;
+    setup | configure | rollback)
+      ((${#TARGETS[@]})) || usage_error "Aktion '$ACTION' benötigt mindestens ein Modul (oder 'all')"
+      ;;
+    info) ((${#TARGETS[@]} == 1)) || usage_error "Aktion 'info' benötigt genau ein Modul" ;;
+    list | backups | menu)
+      ((${#TARGETS[@]} == 0)) || usage_error "Aktion '$ACTION' erwartet keine weiteren Argumente"
+      ;;
+    *) usage_error "Unbekannte Aktion: $ACTION" ;;
+  esac
+}
+
+main() {
+  local -a orig_args=("$@")
+
+  parse_args "$@"
+  log_init_colors
+
+  case $ACTION in
+    help) usage && exit 0 ;;
+    version) printf 'srvctl %s\n' "$SRVCTL_VERSION" && exit 0 ;;
+  esac
+
+  require_root "${orig_args[@]}"
+  core_init
+  os_detect
+  config_load
+  log_open_file
+  security_check_tree
+  backup_init
+  modules_load
+
+  log_file_only "Start: srvctl ${orig_args[*]} (Benutzer: ${SUDO_USER:-root}, Host: ${CONFIG_HOST})"
+
+  case $ACTION in
+    list) modules_list ;;
+    info) module_info "${TARGETS[0]}" ;;
+    backups) backup_list ;;
+    menu) menu_main ;;
+    check | setup | configure | rollback) run_action "$ACTION" "${TARGETS[@]}" ;;
+  esac
+
+  summary_print
+  exit "$(summary_exit_code)"
+}
+
+main "$@"
