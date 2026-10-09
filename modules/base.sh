@@ -288,7 +288,9 @@ _base_check_updates() {
     local origins other
     origins=$(apt-config dump Unattended-Upgrade::Origins-Pattern 2>/dev/null |
       sed -n 's/^Unattended-Upgrade::Origins-Pattern:: "\(.*\)";$/\1/p')
-    other=$(grep -viE 'security' <<<"$origins" | grep . | paste -sd ' ')
+    # Only Debian's own non-security origins count; other modules (e.g. crowdsec)
+    # add their repositories on purpose.
+    other=$(grep -i 'origin=Debian' <<<"$origins" | grep -viE 'security' | paste -sd ' ')
     if [[ -n $other ]]; then
       result_warn "Automatische Updates umfassen auch Nicht-Sicherheitsupdates: $other"
     elif [[ -n $origins ]]; then

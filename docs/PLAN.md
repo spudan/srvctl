@@ -10,8 +10,8 @@ BSI IT-Grundschutz SYS.1.3, Mozilla/ssh-audit-Empfehlungen für SSH. Gemessen wi
 | 1 | `base` – Updates, Zeit, Locale, Paketquellen, Pakete | – | umgesetzt, auf VPS getestet |
 | 2 | `users` – Admin-Benutzer, sudo, root, Passwort-Richtlinien | – | umgesetzt, auf VPS getestet |
 | 3 | `ssh` – SSH-Härtung | users | umgesetzt, auf VPS getestet |
-| 4 | `firewall` – nftables | – | umgesetzt, Test auf VPS offen |
-| 5 | `crowdsec` – Brute-Force-Schutz, Blocklisten (statt fail2ban) | firewall | geplant |
+| 4 | `firewall` – nftables | – | umgesetzt, auf VPS getestet |
+| 5 | `crowdsec` – Brute-Force-Schutz, Blocklisten (statt fail2ban) | firewall | umgesetzt, Test auf VPS offen |
 | 6 | `kernel` – sysctl, Kernelmodule, Mount-Optionen | – | geplant |
 | 7 | `services` – unnötige Dienste, offene Ports | – | geplant |
 | 8 | `logging` – journald, auditd, Logrotation | – | geplant |
@@ -172,6 +172,9 @@ Jede Änderung wird vor dem Neuladen mit `sshd -t` geprüft; neu geladen wird mi
 - Offizielles CrowdSec-Repository als deb822-Quelle mit `signed-by`; **kein** `curl | bash`.
 - Fingerprint des Repo-Schlüssels fest im Modul hinterlegt und beim Download geprüft.
 - `base` führt die Quelle als erlaubte Fremdquelle.
+- **APT-Pinning:** Aus dem Repository dürfen nur `crowdsec` und `crowdsec-firewall-bouncer-nftables` kommen (Priorität 600),
+  alles andere ist gesperrt (-1). Debian 13 selbst liefert nur 1.4.6. In abgetrennter APT-Umgebung getestet.
+- **Automatische Updates:** Die CrowdSec-Quelle wird in unattended-upgrades aufgenommen (`53srvctl-crowdsec`).
 
 ### Datenaustausch
 - Signale teilen und Gemeinschafts-Blockliste empfangen (Standard).
@@ -182,7 +185,8 @@ Jede Änderung wird vor dem Neuladen mit `sshd -t` geprüft; neu geladen wird mi
 - Collections: `crowdsecurity/linux`, `crowdsecurity/sshd-impossible-travel`; weitere über `CROWDSEC_COLLECTIONS`.
   Dienst-Module bringen ihre eigenen Collections mit (z. B. `nginx` → `crowdsecurity/nginx`, `crowdsecurity/http-cve`).
 - **Quelle journald** (Debian 13 hat kein rsyslog und damit kein `auth.log`); Erfassung für sshd ausdrücklich konfiguriert.
-- Täglicher Timer: `cscli hub update && cscli hub upgrade`.
+- Täglicher Hub-Update-Timer: bringt das Paket selbst mit (`crowdsec-hubupdate.timer`), `check` prüft ihn.
+- Die journald-Erfassung für sshd legt das Paket bei der Installation selbst an (`cscli setup`); srvctl ergänzt sie nur, wenn sie fehlt.
 - `check`: Dienst und Bouncer aktiv, CrowdSec verarbeitet tatsächlich Logzeilen (`cscli metrics`), Verbindung zur Gemeinschafts-API.
 
 ### Sperren
