@@ -123,7 +123,7 @@ _base_source_entries() {
 # Prints "URL<TAB>ORIGIN" from the downloaded package lists.
 _base_source_origins() {
   LC_ALL=C apt-cache policy 2>/dev/null | awk '
-    /^ *[0-9]+ [a-z+]+:\/\// { url = $2; sub(/\/+$/, "", url); next }
+    /^ *-?[0-9]+ [a-z+]+:/ { url = $2; sub(/\/+$/, "", url); next } # priority may be -1 (pinning)
     /^ +release / {
       if (url == "") next
       rel = $0; sub(/^ +release /, "", rel); o = ""
@@ -144,7 +144,10 @@ _base_has_security_source() {
 # without scheme, e.g. "rspamd.com/*")
 _base_source_allowed() {
   local url=${1#*://} pattern
-  for pattern in $(cfg_get BASE_APT_ALLOWED_SOURCES ""); do
+  local -a patterns
+  # read -a: no pathname expansion of the patterns (srvctl runs with nullglob)
+  read -ra patterns <<<"$(cfg_get BASE_APT_ALLOWED_SOURCES "")"
+  for pattern in "${patterns[@]}"; do
     # shellcheck disable=SC2053
     [[ $url == $pattern ]] && return 0
   done

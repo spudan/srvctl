@@ -12,7 +12,7 @@ BSI IT-Grundschutz SYS.1.3, Mozilla/ssh-audit-Empfehlungen für SSH. Gemessen wi
 | 3 | `ssh` – SSH-Härtung | users | umgesetzt, auf VPS getestet |
 | 4 | `firewall` – nftables | – | umgesetzt, auf VPS getestet |
 | 5 | `crowdsec` – Brute-Force-Schutz, Blocklisten (statt fail2ban) | firewall | umgesetzt, auf VPS getestet |
-| 6 | `kernel` – sysctl, Kernelmodule, Mount-Optionen | – | umgesetzt, Test auf VPS offen |
+| 6 | `kernel` – sysctl, Kernelmodule, Mount-Optionen | – | umgesetzt, auf VPS getestet |
 | 7 | `services` – unnötige Dienste, offene Ports | – | geplant |
 | 8 | `logging` – journald, auditd, Logrotation | – | geplant |
 | 9 | `apparmor` – AppArmor im Enforce-Modus | – | geplant |
