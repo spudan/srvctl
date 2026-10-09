@@ -15,8 +15,8 @@ BSI IT-Grundschutz SYS.1.3, Mozilla/ssh-audit-Empfehlungen für SSH. Gemessen wi
 | 6 | `kernel` – sysctl, Kernelmodule, Mount-Optionen | – | umgesetzt, auf VPS getestet |
 | 7 | `services` – unnötige Dienste, offene Ports | – | umgesetzt, Test auf VPS offen |
 | 8 | `logging` – journald, auditd, Logrotation | – | umgesetzt, auf VPS getestet |
-| 9 | `apparmor` – AppArmor im Enforce-Modus | – | umgesetzt, Test auf VPS offen |
-| 10 | `integrity` – AIDE, Paketintegrität | – | geplant |
+| 9 | `apparmor` – AppArmor im Enforce-Modus | – | umgesetzt, auf VPS getestet |
+| 10 | `integrity` – AIDE, Paketintegrität | – | umgesetzt, Test auf VPS offen |
 | 11 | `audit` – Lynis-Prüfung (nur check) | – | geplant |
 
 Später (Dienst-Module, nach der Härtung): `docker`, ggf. `nginx`, `tailscale`, zentrales Logging, ggf. Mailversand.
@@ -281,9 +281,14 @@ Jede Änderung wird vor dem Neuladen mit `sshd -t` geprüft; neu geladen wird mi
 
 ## 10. `integrity`
 - **AIDE** mit Debian-Standardregeln, tägliche Prüfung per Timer, Ergebnis im journald; `check` meldet den letzten Befund.
-- Baseline: apt-Hook prüft **vor** Paket-Updates gegen die Baseline (Abweichungen werden gemeldet und gesichert)
-  und aktualisiert sie **danach**; srvctl aktualisiert sie ebenso nach eigenen Änderungen.
-- `check`: `dpkg --verify` (veränderte Paketdateien).
+- **Planänderung (entschieden 2026-10-09):** statt apt-Hook (2 Scans pro apt-Lauf) Debians `dailyaidecheck`:
+  täglich nachts, Änderungen durch Paket-Updates/-Installationen werden über das dpkg-Log herausgefiltert,
+  danach wird die neue Baseline übernommen (`COPYNEWDB=yes`).
+- Der gefilterte Bericht wird über `MAILCMD` an `/usr/local/sbin/srvctl-aide-report` übergeben und unter
+  `/var/log/aide/srvctl-report-*.txt` abgelegt (kein Mailserver nötig); Eintrag im Journal.
+- `check` zeigt Funde aus Berichten seit der letzten Quittierung; eigene Änderungen von srvctl (Backup-Protokolle)
+  werden herausgefiltert. `configure` zeigt die Funde und quittiert sie nach Bestätigung.
+- `check`: `dpkg --verify` (veränderte Paketdateien ohne Konfigurationsdateien), 24 h zwischengespeichert; `--fresh` erzwingt einen neuen Lauf.
 - Kein rkhunter/chkrootkit (viele Fehlalarme, wenig Nutzen gegenüber AIDE + auditd + Lynis).
 
 ## 11. `audit` (nur `check`)
