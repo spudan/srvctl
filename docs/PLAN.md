@@ -3,6 +3,14 @@
 Ziel: Debian-13-Server nach Stand der Technik härten. Grundlagen: CIS Benchmark Debian,
 BSI IT-Grundschutz SYS.1.3, Mozilla/ssh-audit-Empfehlungen für SSH. Gemessen wird mit Lynis.
 
+## Stand (2026-10-09)
+
+- **Alle 11 Härtungsmodule** sind umgesetzt und auf einem frischen Debian-13-VPS getestet; alle grün,
+  **Lynis-Hardening-Index 88** (ungehärteter Vergleichsrechner: 65).
+- **Bestandsserver:** Vorabprüfung (STOP/WARN/INFO) für alle Module umgesetzt und auf einem echten Bestandsserver
+  (Entwicklungsrechner, nur Probeläufe) geprüft; **Test auf einem vorbelasteten VPS offen** (siehe „Offener Test“).
+- **Als Nächstes zur Auswahl:** Benachrichtigung und Berichte, Dienst-Module `docker`/`nginx`/`tailscale`, zentrales Logging.
+
 ## Reihenfolge
 
 | # | Modul | Abhängig von | Status |
@@ -13,11 +21,11 @@ BSI IT-Grundschutz SYS.1.3, Mozilla/ssh-audit-Empfehlungen für SSH. Gemessen wi
 | 4 | `firewall` – nftables | – | umgesetzt, auf VPS getestet |
 | 5 | `crowdsec` – Brute-Force-Schutz, Blocklisten (statt fail2ban) | firewall | umgesetzt, auf VPS getestet |
 | 6 | `kernel` – sysctl, Kernelmodule, Mount-Optionen | – | umgesetzt, auf VPS getestet |
-| 7 | `services` – unnötige Dienste, offene Ports | – | umgesetzt, Test auf VPS offen |
+| 7 | `services` – unnötige Dienste, offene Ports | – | umgesetzt, auf VPS getestet |
 | 8 | `logging` – journald, auditd, Logrotation | – | umgesetzt, auf VPS getestet |
 | 9 | `apparmor` – AppArmor im Enforce-Modus | – | umgesetzt, auf VPS getestet |
 | 10 | `integrity` – AIDE, Paketintegrität | – | umgesetzt, auf VPS getestet |
-| 11 | `audit` – Lynis-Prüfung (nur check) | – | umgesetzt, Test auf VPS offen |
+| 11 | `audit` – Lynis-Prüfung (nur check) | – | umgesetzt, auf VPS getestet |
 
 Später (Dienst-Module, nach der Härtung): `docker`, ggf. `nginx`, `tailscale`, zentrales Logging, ggf. Mailversand,
 **Benachrichtigung und Berichte** (siehe unten).

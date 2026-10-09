@@ -75,6 +75,24 @@ startet ein systemd-Timer (Standard 5 Minuten, `SRVCTL_CONFIRM_TIMEOUT`):
 
 Der Timer startet auch, wenn srvctl nach der Änderung abbricht. Kann er nicht gestartet werden, wird sofort zurückgesetzt.
 
+## Module
+
+| Modul | Zweck |
+|---|---|
+| `base` | Nur Sicherheitsupdates automatisch, needrestart, chrony mit NTS, Zeitzone/Locale, Paketquellen, Basis- und unerwünschte Pakete |
+| `users` | Admins (Gruppen `sudo` + `sshusers`) mit interaktiv eingegebenen SSH-Schlüsseln, Erkennung fremder Schlüssel, sudo mit Passwort, root-Passwort gesperrt, Passwortregeln, Kontenprüfung |
+| `ssh` | Nur Schlüssel, kein root, nur `sshusers`, Post-Quanten-Kryptografie, eingeschränkte Weiterleitungen; mit Bestätigungs-Timer |
+| `firewall` | nftables mit eigener Tabelle: eingehend nur SSH und freigegebene Ports, Regeln anderer Module; mit Bestätigungs-Timer |
+| `crowdsec` | CrowdSec aus dem offiziellen Repository (gepinnt), nftables-Bouncer, Gemeinschafts-Blockliste, steigende Sperrdauer |
+| `kernel` | sysctl-Härtung, gesperrte Kernelmodule, `noexec`/`nodev`/`nosuid` für `/dev/shm`, `/tmp`, `/var/tmp`, keine Core-Dumps |
+| `services` | Öffentlich lauschende Dienste prüfen, unnötige abschalten, cron/at beschränken, Mailserver nur lokal |
+| `logging` | journald dauerhaft (90 Tage), auditd mit CIS-Regelsatz, `audit=1`, Logrotation |
+| `apparmor` | AppArmor aktiv, Profile auf enforce, Dienste ohne Profil melden |
+| `integrity` | AIDE-Tagesprüfung ohne Rauschen durch Paket-Updates, Funde quittieren, `dpkg --verify` |
+| `audit` | Lynis-Hardening-Index mit Schwellen und dokumentierten Ausnahmen (nur Messung) |
+
+Entscheidungen und Begründungen: [`docs/PLAN.md`](docs/PLAN.md).
+
 ## Bestehende Server
 
 srvctl ist zuerst für frische Server entstanden. Auf Servern, die schon laufen, prüft jedes Modul vor
