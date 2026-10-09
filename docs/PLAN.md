@@ -19,7 +19,8 @@ BSI IT-Grundschutz SYS.1.3, Mozilla/ssh-audit-Empfehlungen für SSH. Gemessen wi
 | 10 | `integrity` – AIDE, Paketintegrität | – | umgesetzt, auf VPS getestet |
 | 11 | `audit` – Lynis-Prüfung (nur check) | – | umgesetzt, Test auf VPS offen |
 
-Später (Dienst-Module, nach der Härtung): `docker`, ggf. `nginx`, `tailscale`, zentrales Logging, ggf. Mailversand.
+Später (Dienst-Module, nach der Härtung): `docker`, ggf. `nginx`, `tailscale`, zentrales Logging, ggf. Mailversand,
+**Benachrichtigung und Berichte** (siehe unten).
 
 ## 1. `base`
 
@@ -309,8 +310,30 @@ Jede Änderung wird vor dem Neuladen mit `sshd -t` geprüft; neu geladen wird mi
   - **Bewusste Ausnahmen** (mit Begründung in `/etc/lynis/custom.prf`): SSH-7408:MAXSESSIONS, DEB-0810, DEB-0880,
     BOOT-5122, BOOT-5180, BOOT-5264, FILE-6310, NAME-4028, LOGG-2154, PKGS-7366, AUTH-9230, FINT-4402, TOOL-5002,
     ACCT-9622, ACCT-9626. Der Versionshinweis (LYNIS) ist nicht abschaltbar und wird nicht gezählt.
-  - **Offen:** KRNL-6000 (sysctl-Abweichungen) und FILE-7524 (Dateirechte) – Details vom VPS nötig.
+  - KRNL-6000: `dev.tty.ldisc_autoload=0` umgesetzt (kernel); `kernel.modules_disabled` als Ausnahme
+    (nftables/Docker/Tailscale laden Module bei Bedarf, bis zum Neustart nicht umkehrbar). FILE-7524 im zweiten Lauf ohne Befund.
+- Zweiter Lauf auf dem VPS: **Hardening-Index 88**, alle 11 Module grün.
 - Mit dem entpackten Paket gegen den (ungehärteten) Entwicklungsrechner getestet: Index 65, Teilausnahmen greifen.
+
+## Später: Benachrichtigung und Berichte (noch zu planen)
+
+Bisher landen Meldungen, Logs und Berichte nur lokal auf dem Server. Sie müssen verarbeitet und/oder verschickt werden,
+damit Probleme auffallen, ohne dass jemand regelmäßig `srvctl check` aufruft. Quellen:
+
+| Quelle | Wo es heute liegt |
+|---|---|
+| `srvctl check` (WARN/FAIL), `srvctl status` | nur im Terminal und `/var/log/srvctl.log` |
+| Bestätigungs-Timer: automatisches Zurücksetzen | Journal, `wall`, Hinweis in `check`/`status` |
+| AIDE-Tagesberichte | `/var/log/aide/srvctl-report-*.txt`, Journal (`srvctl-aide`) |
+| Lynis-Wochenbericht | `/var/log/lynis-report.dat` |
+| CrowdSec: Angriffe, Sperren | `cscli alerts list`, optional Web-Console |
+| Automatische Updates, ausstehende Neustarts, needrestart | `/var/log/unattended-upgrades/`, Journal |
+| auditd-Ereignisse, sudo-Protokoll | `/var/log/audit/`, `/var/log/sudo.log` |
+| Fehlgeschlagene Dienste (systemd) | Journal |
+
+Zu klären: Kanäle (Mail über ein Relay-Modul, Push z. B. ntfy/Gotify, Matrix, Webhook), Zusammenfassung vs. Einzelmeldung,
+Schwellen (nur FAIL sofort, WARN täglich gebündelt), periodischer `srvctl -q check all` per Timer, Zusammenspiel mit
+zentralem Logging (z. B. Loki über Tailscale), Datenschutz (IP-Adressen in Meldungen).
 
 ## Framework-Erweiterungen (aus der Planung) – umgesetzt
 - Helfer `ask` für Texteingaben (mit Validierung, mehrzeilig für Schlüssel), `ask_password` (verdeckt, doppelte Eingabe).

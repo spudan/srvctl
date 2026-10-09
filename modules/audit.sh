@@ -34,7 +34,8 @@ AUTH-9230 Fehlalarm: prüft nur SHA-crypt-Runden, Passwörter nutzen yescrypt (M
 FINT-4402 Fehlalarm: Debians AIDE nutzt alle verfügbaren Prüfsummen (Checksums = H)
 TOOL-5002 Systemverwaltung erfolgt mit srvctl
 ACCT-9622 Prozessprotokollierung: sicherheitsrelevante Aufrufe erfasst auditd (Modul logging)
-ACCT-9626 sysstat: Leistungsdaten, nicht sicherheitsrelevant"
+ACCT-9626 sysstat: Leistungsdaten, nicht sicherheitsrelevant
+KRNL-6000:KERNEL.MODULES_DISABLED Kein Sperren des Modul-Nachladens: nftables, Docker und Tailscale laden Module bei Bedarf (bis zum Neustart nicht umkehrbar)"
 
 # --- Configuration -------------------------------------------------------------
 
@@ -51,7 +52,7 @@ _audit_validate() {
     }
   done
   for entry in $(cfg_get AUDIT_EXCEPTIONS ""); do
-    [[ $entry =~ ^[A-Z]+-[0-9]+(:[A-Za-z0-9_]+)?$ ]] || {
+    [[ $entry =~ ^[A-Z]+-[0-9]+(:[A-Za-z0-9_.]+)?$ ]] || {
       result_fail "AUDIT_EXCEPTIONS: '$entry' ist keine Lynis-Test-ID (z. B. BOOT-5122 oder SSH-7408:MAXSESSIONS)"
       ok=1
     }

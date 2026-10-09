@@ -51,6 +51,7 @@ net.core.bpf_jit_harden 2
 kernel.kexec_load_disabled 1
 kernel.perf_event_paranoid 3
 kernel.sysrq 0
+dev.tty.ldisc_autoload 0
 kernel.randomize_va_space 2
 kernel.yama.ptrace_scope $(cfg_get KERNEL_PTRACE_SCOPE 1)
 fs.suid_dumpable 0
