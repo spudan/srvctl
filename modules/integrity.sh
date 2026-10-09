@@ -133,6 +133,8 @@ _int_check_dpkg() {
 
 # --- Apply ---------------------------------------------------------------------
 
+_INT_RULES_CHANGED=0
+
 _int_apply_config() {
   write_file "$_INT_REPORTER" 0755 root:root <<EOF
 #!/bin/sh
@@ -162,13 +164,28 @@ EOF
 
   write_file "$_INT_EXCLUDES" 0644 <<EOF
 # ${_INT_HEADER}
-# Laufend veränderte Dateien von srvctl selbst
+# Laufend veränderte Dateien (AIDE: tiefster Verzeichnisknoten, darin erste Regel –
+# deshalb nur Ausschlüsse, eingeschränkt auf Dateien "f" bzw. Verzeichnisse "d").
+
+# srvctl: Laufzeit- und Statusdateien; die Verzeichnisse ändern sich durch neue Dateien,
+# die Dateien darin (z. B. Schlüssel-Fingerprints) bleiben überwacht
+!/tmp/srvctl\.
+!/var/lib/srvctl(/[^/]+)?\$ d
 !/var/lib/srvctl/pending(/|\$)
-!/var/lib/srvctl/[^/]+/\.(last-action|reverted)\$
-!/var/lib/srvctl/integrity/dpkg-verify\$
+!/var/lib/srvctl/[^/]+/\.(last-action|reverted)\$ f
+!/var/lib/srvctl/integrity/dpkg-verify\$ f
 !/var/backups/srvctl(/|\$)
-!/var/log/srvctl\.log
+
+# Laufzeitdaten
+!/run/faillock(/|\$)
+!/var/lib/crowdsec/data/crowdsec\.db(-shm|-wal|-journal)?\$ f
+
+# Wachsende Logdateien (Rechte prüft das Modul logging, Zugriffe protokolliert auditd)
+!/var/log/audit/audit\.log(\.[0-9]+)?\$ f
+!/var/log/(crowdsec|crowdsec_api|sudo|srvctl)\.log(\.[0-9]+(\.gz)?)?\$ f
+!/var/log/aide/aideinit\.(log|errors)\$ f
 EOF
+  _INT_RULES_CHANGED=$FILE_CHANGED
   if ((!DRY_RUN)) && ! aide --config-check -c /etc/aide/aide.conf >/dev/null 2>&1; then
     result_fail "AIDE-Konfiguration ungültig (aide --config-check) – Änderungen werden zurückgesetzt"
     backup_restore_run integrity "$RUN_ID"
@@ -177,9 +194,17 @@ EOF
   svc_enable dailyaidecheck.timer
 }
 
+# Creates the baseline, or rebuilds it when the exclusion rules changed
+# (otherwise the next check reports the newly excluded entries as removed).
 _int_apply_init() {
-  [[ -s $_INT_DB ]] && return 0
-  log_info "AIDE-Datenbank wird erstellt – das dauert einige Minuten"
+  if [[ -s $_INT_DB ]] && ((!_INT_RULES_CHANGED)); then
+    return 0
+  fi
+  if [[ -s $_INT_DB ]]; then
+    log_info "Ausnahmen geändert – AIDE-Baseline wird neu erstellt (dauert einige Minuten)"
+  else
+    log_info "AIDE-Datenbank wird erstellt – das dauert einige Minuten"
+  fi
   run_cmd nice aideinit --yes --force
   result_ok "AIDE-Baseline erstellt ($_INT_DB)"
 }
