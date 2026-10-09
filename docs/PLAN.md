@@ -11,8 +11,8 @@ BSI IT-Grundschutz SYS.1.3, Mozilla/ssh-audit-Empfehlungen für SSH. Gemessen wi
 | 2 | `users` – Admin-Benutzer, sudo, root, Passwort-Richtlinien | – | umgesetzt, auf VPS getestet |
 | 3 | `ssh` – SSH-Härtung | users | umgesetzt, auf VPS getestet |
 | 4 | `firewall` – nftables | – | umgesetzt, auf VPS getestet |
-| 5 | `crowdsec` – Brute-Force-Schutz, Blocklisten (statt fail2ban) | firewall | umgesetzt, Test auf VPS offen |
-| 6 | `kernel` – sysctl, Kernelmodule, Mount-Optionen | – | geplant |
+| 5 | `crowdsec` – Brute-Force-Schutz, Blocklisten (statt fail2ban) | firewall | umgesetzt, auf VPS getestet |
+| 6 | `kernel` – sysctl, Kernelmodule, Mount-Optionen | – | umgesetzt, Test auf VPS offen |
 | 7 | `services` – unnötige Dienste, offene Ports | – | geplant |
 | 8 | `logging` – journald, auditd, Logrotation | – | geplant |
 | 9 | `apparmor` – AppArmor im Enforce-Modus | – | geplant |
@@ -216,7 +216,13 @@ Jede Änderung wird vor dem Neuladen mit `sshd -t` geprüft; neu geladen wird mi
 - `/tmp`, `/var/tmp`: `nodev,nosuid`; `noexec` per `KERNEL_TMP_NOEXEC=1` zuschaltbar.
 
 ### Core-Dumps
-- Aus: `* hard core 0`, `fs.suid_dumpable=0`, systemd-coredump `Storage=none`.
+- Aus: `* hard core 0`, `fs.suid_dumpable=0`, systemd-coredump `Storage=none`, `DefaultLimitCORE=0` für Dienste.
+
+### Umsetzung
+- `/dev/shm` über `/etc/fstab` + Remount; `/tmp` ist bei Debian 13 bereits tmpfs mit `nodev,nosuid`
+  (`noexec` per Drop-in für `tmp.mount`); `/var/tmp` per Bind-Mount-Unit `var-tmp.mount`.
+- `kexec_load_disabled=1` und `unprivileged_bpf_disabled=1` sind Einbahnstraßen: Rollback wirkt erst nach Neustart.
+- Mount-Befehle in einem isolierten Mount-Namespace getestet.
 
 ## 7. `services`
 
