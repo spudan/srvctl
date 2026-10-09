@@ -18,7 +18,8 @@ readonly _AUDIT_EXCEPTIONS="AUTH-9282 Kein Passwortablauf (NIST SP 800-63B, Modu
 AUTH-9286 Kein Passwortablauf (NIST SP 800-63B, Modul users)
 SSH-7408:PORT SSH auf Port 22 bewusst (Modul ssh)
 SSH-7408:ALLOWTCPFORWARDING Tunnel mit -L erlaubt (AllowTcpForwarding local, Modul ssh)
-HRDN-7230 Kein Malware-Scanner (rkhunter/chkrootkit bewusst nicht, AIDE + auditd + CrowdSec)"
+HRDN-7230 Kein Malware-Scanner (rkhunter/chkrootkit bewusst nicht, AIDE + auditd + CrowdSec)
+FIRE-4512 Firewall über nftables (Modul firewall); iptables-Kompatibilitätsmodule ohne Regeln sind kein Mangel"
 
 # --- Configuration -------------------------------------------------------------
 

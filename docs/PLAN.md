@@ -300,7 +300,8 @@ Jede Änderung wird vor dem Neuladen mit `sshd -t` geprüft; neu geladen wird mi
 - Umsetzung: Debians `lynis.timer` per Drop-in auf wöchentlich; Bericht `/var/log/lynis-report.dat`.
   Ausnahmen in `/etc/lynis/custom.prf`, auch für Teilprüfungen (`SSH-7408:PORT`), mit Begründung.
 - Erste Ausnahmen: AUTH-9282/9286 (kein Passwortablauf), SSH-7408:PORT, SSH-7408:ALLOWTCPFORWARDING,
-  HRDN-7230 (kein Malware-Scanner). Weitere nach dem ersten Lauf auf dem VPS gemeinsam festlegen.
+  HRDN-7230 (kein Malware-Scanner), FIRE-4512 (nftables statt iptables; Fehlalarm beim ersten VPS-Lauf).
+- Erster Lauf auf dem VPS nach allen Modulen: **Hardening-Index 81** (ungehärteter Vergleichsrechner: 65).
 - Mit dem entpackten Paket gegen den (ungehärteten) Entwicklungsrechner getestet: Index 65, Teilausnahmen greifen.
 
 ## Framework-Erweiterungen (aus der Planung) – umgesetzt
