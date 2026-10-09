@@ -25,7 +25,7 @@ _base_nts_servers() {
 
 _base_packages_install() {
   local pkgs
-  pkgs=$(cfg_get BASE_PACKAGES_INSTALL "needrestart debsecan apt-listchanges ca-certificates")
+  pkgs=$(cfg_get BASE_PACKAGES_INSTALL "needrestart debsecan apt-listchanges ca-certificates debsums apt-show-versions")
   os_is debian || pkgs=${pkgs//debsecan/} # debsecan uses Debian's security tracker
   echo $pkgs # word splitting collapses the gap left by the removal
 }
@@ -248,6 +248,11 @@ _base_check_packages() {
   else
     result_ok "Keine unerwünschten Pakete installiert"
   fi
+  local residual
+  residual=$(pkg_residual | paste -sd ' ')
+  if [[ -n $residual ]]; then
+    result_warn "Reste entfernter Pakete (Konfiguration, Cron-Jobs): $residual – 'srvctl setup base'"
+  fi
 }
 
 _base_install_packages() {
@@ -272,8 +277,22 @@ _base_remove_packages() {
     result_warn "Entfernen übersprungen: ${present[*]}"
     return 0
   fi
-  pkg_remove "${present[@]}"
+  pkg_purge "${present[@]}"
   result_ok "Entfernt: ${present[*]}"
+}
+
+# Purges configuration left behind by removed packages
+_base_purge_residual() {
+  local -a residual
+  mapfile -t residual < <(pkg_residual)
+  ((${#residual[@]})) || return 0
+  log_info "Reste entfernter Pakete: ${residual[*]}"
+  if ! confirm "Konfigurationsreste dieser Pakete löschen?"; then
+    result_warn "Bereinigung übersprungen: ${residual[*]}"
+    return 0
+  fi
+  pkg_purge "${residual[@]}"
+  result_ok "Reste bereinigt: ${residual[*]}"
 }
 
 # --- Automatic updates ---------------------------------------------------------
@@ -599,6 +618,7 @@ base::setup() {
   pkg_update_once
   _base_install_packages
   _base_remove_packages
+  _base_purge_residual
   base::configure
 }
 

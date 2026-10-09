@@ -536,6 +536,11 @@ _users_check_policies() {
   else
     result_fail "Kontosperre nach Fehlversuchen (pam_faillock) nicht aktiv"
   fi
+  if grep -q 'pam_tmpdir' /etc/pam.d/common-session 2>/dev/null; then
+    result_ok "Eigenes Temp-Verzeichnis pro Benutzer (pam_tmpdir)"
+  else
+    result_warn "pam_tmpdir nicht aktiv (gemeinsames /tmp für alle Sitzungen) – 'srvctl setup users'"
+  fi
   if [[ $(conf_get /etc/login.defs UMASK 2>/dev/null) == "$(cfg_get USERS_UMASK 027)" && -f $_USERS_UMASK_PROFILE ]]; then
     result_ok "Standard-umask $(cfg_get USERS_UMASK 027)"
   else
@@ -665,7 +670,7 @@ users::check() {
 
 users::setup() {
   _users_backup_pam
-  pkg_install sudo libpam-pwquality libpwquality-tools cracklib-runtime
+  pkg_install sudo libpam-pwquality libpwquality-tools cracklib-runtime libpam-tmpdir
   _users_apply_policies
 
   local ready

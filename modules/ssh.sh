@@ -24,6 +24,12 @@ readonly _SSH_PUBKEY_ALGS_SK="sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@
 # --- Configuration -------------------------------------------------------------
 
 _ssh_port() { cfg_get SSH_PORT 22; }
+
+# Legal notice (German + English; Lynis looks for English key words)
+_ssh_banner_text() {
+  cfg_get SSH_BANNER_TEXT "Zugriff nur für berechtigte Personen. Alle Aktivitäten werden protokolliert.
+Authorized access only. All activity is logged and monitored; unauthorized use is prohibited and may be prosecuted."
+}
 _ssh_require_sk() { [[ $(cfg_get SSH_REQUIRE_SK 0) == 1 ]]; }
 
 _ssh_pubkey_algs() {
@@ -61,7 +67,9 @@ x11forwarding no
 permittunnel no
 gatewayports no
 clientaliveinterval $(cfg_get SSH_CLIENT_ALIVE_INTERVAL 300)
-clientalivecountmax 3
+clientalivecountmax 2
+tcpkeepalive no
+maxsessions $(cfg_get SSH_MAX_SESSIONS 4)
 banner $_SSH_BANNER
 debianbanner no
 EOF
@@ -133,6 +141,8 @@ _ssh_dropin() {
       gatewayports) echo "GatewayPorts $value" ;;
       clientaliveinterval) echo "ClientAliveInterval $value" ;;
       clientalivecountmax) echo "ClientAliveCountMax $value" ;;
+      tcpkeepalive) echo "TCPKeepAlive $value" ;;
+      maxsessions) echo "MaxSessions $value" ;;
       banner) echo "Banner $value" ;;
       debianbanner) echo "DebianBanner $value" ;;
     esac
@@ -312,8 +322,11 @@ ssh::configure() {
 
   _ssh_apply_hostkeys
 
-  write_file "$_SSH_BANNER" 0644 <<<"$(cfg_get SSH_BANNER_TEXT "Zugriff nur für berechtigte Personen. Alle Aktivitäten werden protokolliert.")"
+  write_file "$_SSH_BANNER" 0644 <<<"$(_ssh_banner_text)"
   if ((FILE_CHANGED)); then _SSH_CHANGED=1; fi
+  # Same notice before local/console logins instead of the OS version
+  write_file /etc/issue 0644 <<<"$(_ssh_banner_text)"
+  write_file /etc/issue.net 0644 <<<"$(_ssh_banner_text)"
 
   local candidate
   candidate=$(mktemp "${RUN_DIR}/dropin.XXXXXX")

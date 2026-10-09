@@ -43,6 +43,23 @@ pkg_remove() {
   run_cmd env DEBIAN_FRONTEND=noninteractive apt-get remove -y -q "${present[@]}"
 }
 
+# pkg_purge PKG... - removes installed packages including their configuration
+pkg_purge() {
+  local pkg
+  local -a present=()
+  for pkg; do
+    if pkg_installed "$pkg" || dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q 'config-files'; then
+      present+=("$pkg")
+    fi
+  done
+  ((${#present[@]})) || return 0
+  log_info "Entferne vollständig: ${present[*]}"
+  run_cmd env DEBIAN_FRONTEND=noninteractive apt-get purge -y -q "${present[@]}"
+}
+
+# Packages that were removed but left configuration files behind ("rc")
+pkg_residual() { dpkg-query -W -f='${db:Status-Abbrev} ${Package}\n' 2>/dev/null | awk '$1 == "rc" { print $2 }'; }
+
 # --- Services ----------------------------------------------------------------
 
 svc_exists() { systemctl cat "$1" >/dev/null 2>&1; }

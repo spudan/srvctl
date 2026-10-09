@@ -302,6 +302,14 @@ Jede Änderung wird vor dem Neuladen mit `sshd -t` geprüft; neu geladen wird mi
 - Erste Ausnahmen: AUTH-9282/9286 (kein Passwortablauf), SSH-7408:PORT, SSH-7408:ALLOWTCPFORWARDING,
   HRDN-7230 (kein Malware-Scanner), FIRE-4512 (nftables statt iptables; Fehlalarm beim ersten VPS-Lauf).
 - Erster Lauf auf dem VPS nach allen Modulen: **Hardening-Index 81** (ungehärteter Vergleichsrechner: 65).
+- Durchsicht der Lynis-Vorschläge (2026-10-09):
+  - **Umgesetzt:** `libpam-tmpdir` (users), `debsums` + `apt-show-versions` und Bereinigung von Paketresten (base),
+    zweisprachiger Hinweis in SSH-Banner, `/etc/issue`, `/etc/issue.net` (Lynis erwartet englische Schlüsselwörter),
+    `ClientAliveCountMax 2`, `TCPKeepAlive no`, `MaxSessions 4` (ssh).
+  - **Bewusste Ausnahmen** (mit Begründung in `/etc/lynis/custom.prf`): SSH-7408:MAXSESSIONS, DEB-0810, DEB-0880,
+    BOOT-5122, BOOT-5180, BOOT-5264, FILE-6310, NAME-4028, LOGG-2154, PKGS-7366, AUTH-9230, FINT-4402, TOOL-5002,
+    ACCT-9622, ACCT-9626. Der Versionshinweis (LYNIS) ist nicht abschaltbar und wird nicht gezählt.
+  - **Offen:** KRNL-6000 (sysctl-Abweichungen) und FILE-7524 (Dateirechte) – Details vom VPS nötig.
 - Mit dem entpackten Paket gegen den (ungehärteten) Entwicklungsrechner getestet: Index 65, Teilausnahmen greifen.
 
 ## Framework-Erweiterungen (aus der Planung) – umgesetzt

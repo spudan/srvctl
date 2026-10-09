@@ -19,7 +19,22 @@ AUTH-9286 Kein Passwortablauf (NIST SP 800-63B, Modul users)
 SSH-7408:PORT SSH auf Port 22 bewusst (Modul ssh)
 SSH-7408:ALLOWTCPFORWARDING Tunnel mit -L erlaubt (AllowTcpForwarding local, Modul ssh)
 HRDN-7230 Kein Malware-Scanner (rkhunter/chkrootkit bewusst nicht, AIDE + auditd + CrowdSec)
-FIRE-4512 Firewall über nftables (Modul firewall); iptables-Kompatibilitätsmodule ohne Regeln sind kein Mangel"
+FIRE-4512 Firewall über nftables (Modul firewall); iptables-Kompatibilitätsmodule ohne Regeln sind kein Mangel
+SSH-7408:MAXSESSIONS MaxSessions 4 statt 2: Multiplexing und VS Code Remote sollen funktionieren (Modul ssh)
+DEB-0810 apt-listbugs ist interaktiv und für Debian unstable gedacht; stört unbeaufsichtigte Updates
+DEB-0880 CrowdSec statt fail2ban (Modul crowdsec)
+BOOT-5122 Kein GRUB-Passwort: Wer an die Hoster-Konsole kommt, kann ohnehin das Rettungssystem starten
+BOOT-5180 Laufzeitstufen gibt es unter systemd nicht
+BOOT-5264 Sandboxing einzelner Dienste (systemd-analyze security) ist ein eigenes, späteres Thema
+FILE-6310 VPS mit einer Platte; eigene Partitionen für /home und /var nicht sinnvoll
+NAME-4028 DNS-Domain im Rechnernamen ohne Belang für die Sicherheit
+LOGG-2154 Externes Logging folgt als eigenes Modul (docs/PLAN.md)
+PKGS-7366 debsecan läuft in 'srvctl check base', kein eigener Cron-Job nötig
+AUTH-9230 Fehlalarm: prüft nur SHA-crypt-Runden, Passwörter nutzen yescrypt (Modul users)
+FINT-4402 Fehlalarm: Debians AIDE nutzt alle verfügbaren Prüfsummen (Checksums = H)
+TOOL-5002 Systemverwaltung erfolgt mit srvctl
+ACCT-9622 Prozessprotokollierung: sicherheitsrelevante Aufrufe erfasst auditd (Modul logging)
+ACCT-9626 sysstat: Leistungsdaten, nicht sicherheitsrelevant"
 
 # --- Configuration -------------------------------------------------------------
 
@@ -118,8 +133,10 @@ _audit_check() {
     result_warn "Lynis-Warnung $id: $text"
   done < <(_audit_items warning)
 
+  # "LYNIS" (release age) cannot be skipped via the profile; Lynis comes from the
+  # Debian package on purpose, so it is not counted.
   local suggestions
-  suggestions=$(_audit_items suggestion | grep -c .)
+  suggestions=$(_audit_items suggestion | grep -v '^LYNIS|' | grep -c .)
   if ((suggestions > 0)); then
     log_info "Lynis hat $suggestions Vorschläge – anzeigen: grep '^suggestion' $_AUDIT_REPORT"
   fi
