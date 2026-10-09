@@ -6,7 +6,7 @@ Es läuft lokal auf dem jeweiligen Server.
 ## Installation
 
 ```bash
-git clone git@github.com:spudan/srvctl.git /opt/srvctl
+git clone https://github.com/spudan/srvctl.git /opt/srvctl
 chown -R root:root /opt/srvctl && chmod -R go-w /opt/srvctl
 ln -s /opt/srvctl/srvctl /usr/local/bin/srvctl
 ```
