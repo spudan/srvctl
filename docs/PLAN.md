@@ -9,6 +9,8 @@ BSI IT-Grundschutz SYS.1.3, Mozilla/ssh-audit-Empfehlungen für SSH. Gemessen wi
   **Lynis-Hardening-Index 88** (ungehärteter Vergleichsrechner: 65).
 - **Bestandsserver:** Vorabprüfung (STOP/WARN/INFO) für alle Module umgesetzt und auf einem echten Bestandsserver
   (Entwicklungsrechner, nur Probeläufe) geprüft; **Test auf einem vorbelasteten VPS offen** (siehe „Offener Test“).
+- **Test-VPS gelöscht (2026-10-09).** Der nächste Test beginnt auf einem **neuen, frischen Debian-13-System**
+  (Ablauf siehe „Nächster Test: neues System“). Dabei laufen alle Module erstmals mit Vorabprüfung durch.
 - **Als Nächstes zur Auswahl:** Benachrichtigung und Berichte, Dienst-Module `docker`/`nginx`/`tailscale`, zentrales Logging.
 
 ## Reihenfolge
@@ -349,6 +351,28 @@ Konfigurationszeile nennen.
 | kernel | Weiterleitung aktiv, geladene Module der Sperrliste, kdump, überschreibende sysctl-Dateien | WARN `KERNEL_RP_FILTER=2`, STOP `KERNEL_BLACKLIST_KEEP`, kexec bei kdump erlaubt, INFO | umgesetzt |
 | audit | eigenes `custom.prf` | übernommen und angehängt | umgesetzt |
 
+
+### Nächster Test: neues System (der bisherige VPS wurde gelöscht)
+
+Ziel: kompletter Durchlauf aller Module auf einem frischen Debian 13, diesmal mit Vorabprüfung, danach der Test
+„vorbelasteter Server“ (unten) auf derselben Maschine.
+
+1. Vorbereitung als root (Schlüssel-Login des Hosters):
+   `apt-get update && apt-get install -y git`,
+   `git clone https://github.com/spudan/srvctl.git /opt/srvctl`,
+   `chown -R root:root /opt/srvctl && chmod -R go-w /opt/srvctl`,
+   `ln -sfn /opt/srvctl/srvctl /usr/local/bin/srvctl`.
+2. `srvctl check all`, dann `srvctl -n setup all` – Vorabprüfung ansehen. Erwartet: höchstens WARN (z. B. Zeitzone,
+   Zeitserver des Hosters in timesyncd), kein STOP.
+3. Module einzeln, **Befehle einzeln eingeben** (Rückfragen lesen sonst die nächste eingefügte Zeile):
+   `setup base` → `setup users` (interaktiv: Admin, Schlüssel, Passwort; danach Login als Admin in neuem Terminal
+   testen) → `setup ssh` (**in neuem Terminal anmelden und `sudo srvctl confirm`**) → `setup firewall` (ebenso
+   bestätigen) → `setup crowdsec` → `setup kernel` → `setup services` → `setup logging` → Neustart →
+   `setup apparmor` → `setup integrity` (Baseline, einige Minuten) → `setup audit`.
+4. `srvctl check all` und `srvctl status` – Ziel: alles grün, Lynis-Index ≥ 88.
+5. Bekannte Stolpersteine aus dem ersten Durchlauf: Bestätigung aus **neuer** Sitzung nicht vergessen (sonst
+   automatisches Zurücksetzen nach 5 Minuten); `dailyaidecheck.service` startet nur einmal in 2 Stunden
+   (vorher `systemctl reset-failed dailyaidecheck.service`); `git pull` als root bzw. mit sudo.
 
 ### Offener Test auf dem VPS (vorbelasteter Server)
 1. `sudo srvctl -n setup all` – im Normalzustand kein `[STOP]`.
