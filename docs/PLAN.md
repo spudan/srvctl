@@ -9,8 +9,8 @@ BSI IT-Grundschutz SYS.1.3, Mozilla/ssh-audit-Empfehlungen für SSH. Gemessen wi
 |---|---|---|---|
 | 1 | `base` – Updates, Zeit, Locale, Paketquellen, Pakete | – | umgesetzt, auf VPS getestet |
 | 2 | `users` – Admin-Benutzer, sudo, root, Passwort-Richtlinien | – | umgesetzt, auf VPS getestet |
-| 3 | `ssh` – SSH-Härtung | users | umgesetzt, Test auf VPS offen |
-| 4 | `firewall` – nftables | – | geplant |
+| 3 | `ssh` – SSH-Härtung | users | umgesetzt, auf VPS getestet |
+| 4 | `firewall` – nftables | – | umgesetzt, Test auf VPS offen |
 | 5 | `crowdsec` – Brute-Force-Schutz, Blocklisten (statt fail2ban) | firewall | geplant |
 | 6 | `kernel` – sysctl, Kernelmodule, Mount-Optionen | – | geplant |
 | 7 | `services` – unnötige Dienste, offene Ports | – | geplant |
@@ -142,6 +142,10 @@ Jede Änderung wird vor dem Neuladen mit `sshd -t` geprüft; neu geladen wird mi
 - **Nie `flush ruleset`**: Nur die eigene Tabelle wird ersetzt, damit Tabellen von CrowdSec, Docker und Tailscale erhalten bleiben.
   (Debians Standard-`/etc/nftables.conf` beginnt mit `flush ruleset`; das wird angepasst.)
 - Änderungen laufen über den Bestätigungs-Timer (wie bei `ssh`).
+- Debians `nftables.service` führt beim Stoppen `flush ruleset` aus; ein systemd-Drop-in ersetzt das durch
+  `nft delete table inet srvctl`. `/etc/nftables.conf` bindet nur noch `/etc/srvctl/nftables/*.nft` ein.
+- Regeln liegen in `/etc/srvctl/nftables/srvctl.nft` (Muster `table; delete table; table {…}` = atomarer Austausch).
+- Getestet in isolierten Netzwerk-Namespaces: Ports, Allowlist, Ratenlimit, Ausgangssperre.
 
 ### Eingehend
 - `input` und `forward`: Grundregel `drop`; erlaubt sind bestehende Verbindungen und Loopback, ungültige Pakete werden verworfen.

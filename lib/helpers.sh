@@ -203,20 +203,44 @@ check_conf() {
 
 # --- Firewall rules from other modules ---------------------------------------
 
+FIREWALL_RULES_FILE=/etc/srvctl/nftables/srvctl.nft
+firewall_dir() { echo "${SRVCTL_FIREWALL_DIR:-/etc/srvctl/firewall.d}"; }
+
 # firewall_rules MODULE <RULES - sets the nftables rules MODULE contributes to
 # the input chain of "table inet srvctl" (e.g. 'tcp dport { 80, 443 } accept').
-# Empty input removes them. The firewall module includes and loads the files.
+# Empty input removes them. If the firewall is active it is reloaded; invalid
+# rules are rejected and the previous file is restored.
 firewall_rules() {
   local mod=$1 file content
-  file="${SRVCTL_FIREWALL_DIR:-/etc/srvctl/firewall.d}/${mod}.nft"
+  file="$(firewall_dir)/${mod}.nft"
   content=$(cat)
+  FILE_CHANGED=0
   if [[ -z ${content//[[:space:]]/} ]]; then
-    FILE_CHANGED=0
     [[ -e $file ]] || return 0
     backup_file "$file" || return 1
     run_cmd rm -f -- "$file" || return 1
     FILE_CHANGED=1
+  else
+    write_file "$file" 0600 <<<"# Verwaltet von srvctl (Modul: ${mod})"$'\n'"${content}" || return 1
+  fi
+  ((FILE_CHANGED)) || return 0
+  firewall_reload || {
+    backup_restore "$file" "$RUN_ID"
+    return 1
+  }
+}
+
+# firewall_reload - reloads the srvctl table if the firewall is set up
+firewall_reload() {
+  [[ -f $FIREWALL_RULES_FILE ]] || return 0
+  if ((DRY_RUN)); then
+    log_dry "nft -f $FIREWALL_RULES_FILE"
     return 0
   fi
-  write_file "$file" 0600 <<<"# Verwaltet von srvctl (Modul: ${mod})"$'\n'"${content}"
+  local out
+  if ! out=$(nft -c -f "$FIREWALL_RULES_FILE" 2>&1); then
+    result_fail "Firewall-Regeln ungültig, nicht geladen: $out"
+    return 1
+  fi
+  run_cmd nft -f "$FIREWALL_RULES_FILE"
 }
