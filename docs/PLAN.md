@@ -9,7 +9,7 @@ BSI IT-Grundschutz SYS.1.3, Mozilla/ssh-audit-Empfehlungen für SSH. Gemessen wi
 |---|---|---|---|
 | 1 | `base` – Updates, Zeit, Locale, Paketquellen, Pakete | – | umgesetzt, auf VPS getestet |
 | 2 | `users` – Admin-Benutzer, sudo, root, Passwort-Richtlinien | – | umgesetzt, auf VPS getestet |
-| 3 | `ssh` – SSH-Härtung | users | geplant |
+| 3 | `ssh` – SSH-Härtung | users | umgesetzt, Test auf VPS offen |
 | 4 | `firewall` – nftables | – | geplant |
 | 5 | `crowdsec` – Brute-Force-Schutz, Blocklisten (statt fail2ban) | firewall | geplant |
 | 6 | `kernel` – sysctl, Kernelmodule, Mount-Optionen | – | geplant |
@@ -120,6 +120,8 @@ Jede Änderung wird vor dem Neuladen mit `sshd -t` geprüft; neu geladen wird mi
 - Host-Keys: Ed25519 + RSA-4096. Ein kürzerer RSA-Key wird neu erzeugt (Clients sehen dann einmalig eine Host-Key-Warnung), ECDSA-Host-Key entfernt.
 - `RequiredRSASize 3072`.
 - `check` nutzt zusätzlich `ssh-audit` (Debian-Paket) als unabhängige Prüfung.
+- Benutzer-Schlüssel (`PubkeyAcceptedAlgorithms`): Ed25519, RSA (SHA-2), ECDSA und FIDO2-Varianten – passend zu `users`.
+- `check` vergleicht die **wirksamen** Werte aus `sshd -T`, nicht nur die Datei.
 
 ### Weiterleitungen
 - `AllowTcpForwarding local` (Tunnel mit `-L` möglich, kein `-R`), `AllowAgentForwarding no` (stattdessen ProxyJump `-J`),
