@@ -8,7 +8,7 @@ BSI IT-Grundschutz SYS.1.3, Mozilla/ssh-audit-Empfehlungen für SSH. Gemessen wi
 | # | Modul | Abhängig von | Status |
 |---|---|---|---|
 | 1 | `base` – Updates, Zeit, Locale, Paketquellen, Pakete | – | umgesetzt, auf VPS getestet |
-| 2 | `users` – Admin-Benutzer, sudo, root, Passwort-Richtlinien | – | umgesetzt, Test auf VPS offen |
+| 2 | `users` – Admin-Benutzer, sudo, root, Passwort-Richtlinien | – | umgesetzt, auf VPS getestet |
 | 3 | `ssh` – SSH-Härtung | users | geplant |
 | 4 | `firewall` – nftables | – | geplant |
 | 5 | `crowdsec` – Brute-Force-Schutz, Blocklisten (statt fail2ban) | firewall | geplant |

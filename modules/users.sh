@@ -549,8 +549,10 @@ _users_check_policies() {
   else
     result_warn "sudo-Härtung ($_USERS_SUDOERS) fehlt"
   fi
+  # NOPASSWD for root itself is harmless (e.g. cloud-init's 90-cloud-init-users)
   local nopasswd
-  nopasswd=$(grep -lsE '^[^#]*NOPASSWD' /etc/sudoers /etc/sudoers.d/* | paste -sd ' ')
+  nopasswd=$(awk '/^[^#]*NOPASSWD/ && $1 != "root" { print FILENAME; nextfile }' \
+    /etc/sudoers /etc/sudoers.d/* 2>/dev/null | paste -sd ' ')
   if [[ -n $nopasswd ]]; then
     result_warn "sudo ohne Passwort (NOPASSWD) erlaubt in: $nopasswd"
   fi
