@@ -254,12 +254,12 @@ Jede Änderung wird vor dem Neuladen mit `sshd -t` geprüft; neu geladen wird mi
 - Wöchentlicher Timer speichert den Bericht; `check` nutzt ihn, solange er jünger als 7 Tage ist.
   `srvctl --fresh check audit` erzwingt einen neuen Lauf.
 
-## Framework-Erweiterungen (aus der Planung)
+## Framework-Erweiterungen (aus der Planung) – umgesetzt
 - Helfer `ask` für Texteingaben (mit Validierung, mehrzeilig für Schlüssel), `ask_password` (verdeckt, doppelte Eingabe).
 - Statusverzeichnis `/var/lib/srvctl` (nur root) für lokalen Modulzustand.
 - **Bestätigungs-Timer:** `confirm_or_revert` startet einen `systemd-run`-Timer, der die Backups des Laufs zurückspielt
   und Dienste neu lädt, wenn nicht rechtzeitig `srvctl confirm` aufgerufen wird. Genutzt von `ssh` und `firewall`.
 - **`srvctl status`:** Tabelle pro Modul (umgesetzt / Abweichungen / nicht umgesetzt) aus einem stillen `check`-Lauf
   plus letzte Änderung (Zeitpunkt, Aktion) aus `/var/lib/srvctl`.
-- **Dienst-Registrierung:** Module melden ihre erwarteten lauschenden Dienste an (für `services`), analog zu `firewall_rules`.
+- **Dienst-Registrierung:** Module deklarieren `MODULE_LISTEN=(prozess …)`; `services` erlaubt diese Prozesse.
 - **Option `--fresh`:** Module ignorieren zwischengespeicherte Ergebnisse (z. B. Lynis-Bericht).

@@ -122,19 +122,24 @@ backup_restore_module() {
     result_skip "Keine Änderungen zum Zurücksetzen vorhanden"
     return 0
   fi
+  backup_restore_run "$mod" "$run"
+}
 
-  log_info "Setze Änderungen aus Lauf $run zurück"
-  local rc=0
+# backup_restore_run MODULE RUN_ID - restores all files MODULE changed in
+# RUN_ID and marks that run as rolled back for MODULE.
+backup_restore_run() {
+  local mod=$1 run=$2 path rc=0
+  log_info "Setze Änderungen von $mod aus Lauf $run zurück"
   while IFS= read -r path; do
     backup_restore "$path" "$run" || rc=1
   done < <(awk -F'\t' -v m="$mod" '$2 == m && ($1 == "SAVED" || $1 == "ABSENT") && !seen[$3]++ { print $3 }' \
-    "${BACKUP_DIR}/${run}/MANIFEST")
+    "${BACKUP_DIR}/${run}/MANIFEST" 2>/dev/null)
 
   if ((rc == 0)) && ((!DRY_RUN)); then
     printf 'ROLLEDBACK\t%s\t-\t%s\n' "$mod" "$RUN_ID" >>"${BACKUP_DIR}/${run}/MANIFEST"
   fi
   if ((rc == 0)); then
-    result_ok "Änderungen aus Lauf $run zurückgesetzt (Dienste ggf. neu starten)"
+    result_ok "Änderungen aus Lauf $run zurückgesetzt"
   else
     result_fail "Zurücksetzen aus Lauf $run unvollständig"
   fi

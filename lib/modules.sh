@@ -2,12 +2,14 @@
 # Module handling: discovery, dependency resolution and execution.
 #
 # A module is modules/<name>.sh defining MODULE_NAME (= <name>), MODULE_DESC,
-# optional MODULE_DEPENDS=(...) and functions <name>::check, ::setup,
-# ::configure, ::rollback (all optional).
+# optional MODULE_DEPENDS=(...), optional MODULE_LISTEN=(...) (process names
+# that may listen on public addresses, used by the services module) and
+# functions <name>::check, ::setup, ::configure, ::rollback and
+# ::after_revert (all optional).
 
 readonly MODULE_ACTIONS=(check setup configure rollback)
 
-declare -A MOD_FILE=() MOD_DESC=() MOD_DEPENDS=()
+declare -A MOD_FILE=() MOD_DESC=() MOD_DEPENDS=() MOD_LISTEN=()
 MOD_NAMES=()
 RESOLVED=()
 
@@ -19,7 +21,7 @@ modules_load() {
       log_warn "Ungültiger Modulname, übersprungen: $file"
       continue
     fi
-    MODULE_NAME="" MODULE_DESC="" MODULE_DEPENDS=()
+    MODULE_NAME="" MODULE_DESC="" MODULE_DEPENDS=() MODULE_LISTEN=()
     # shellcheck source=/dev/null
     if ! source "$file"; then
       log_warn "Modul $name konnte nicht geladen werden"
@@ -32,9 +34,10 @@ modules_load() {
     MOD_FILE[$name]=$file
     MOD_DESC[$name]=$MODULE_DESC
     MOD_DEPENDS[$name]="${MODULE_DEPENDS[*]}"
+    MOD_LISTEN[$name]="${MODULE_LISTEN[*]}"
     MOD_NAMES+=("$name")
   done
-  unset MODULE_NAME MODULE_DESC MODULE_DEPENDS
+  unset MODULE_NAME MODULE_DESC MODULE_DEPENDS MODULE_LISTEN
 
   for name in "${MOD_NAMES[@]}"; do
     for dep in ${MOD_DEPENDS[$name]}; do
@@ -131,7 +134,7 @@ module_run() {
     CURRENT_ACTION=$action
     if [[ $action != check ]]; then
       set -o errexit -o errtrace
-      trap 'log_error "Befehl fehlgeschlagen (Exit-Code $?): $BASH_COMMAND"' ERR
+      trap '_err_rc=$?; [[ $BASH_COMMAND == return* ]] || log_error "Befehl fehlgeschlagen (Exit-Code $_err_rc): $BASH_COMMAND"' ERR
     fi
     if module_has_action "$mod" "$action"; then
       "${mod}::${action}"
@@ -150,7 +153,13 @@ module_run() {
   fi
   CURRENT_MODULE=""
 
-  ((rc == 0 && $(results_count FAIL "$mod") == fails_before))
+  if ((rc == 0 && $(results_count FAIL "$mod") == fails_before)); then
+    case $action in
+      setup | configure | rollback) state_record_action "$mod" "$action" ;;
+    esac
+    return 0
+  fi
+  return 1
 }
 
 # run_action ACTION NAME... - resolves modules and runs ACTION on each
@@ -219,6 +228,53 @@ run_action() {
   fi
 }
 
+# modules_status - one line per module from a silent check run plus the last
+# applied action. Returns 2/1/0 like the check summary.
+modules_status() {
+  local -a mods
+  local mod ok warn fail last when action symbol text color rc=0
+  mapfile -t mods < <(modules_enabled)
+
+  local quiet_saved=$QUIET
+  QUIET=1
+  for mod in "${mods[@]}"; do
+    module_has_action "$mod" check || continue
+    module_run "$mod" check >/dev/null 2>&1
+  done
+  QUIET=$quiet_saved
+
+  printf '%s%-16s %-22s %s%s\n' "$C_BOLD" "Modul" "Zustand" "Zuletzt angewendet" "$C_RESET"
+  for mod in "${mods[@]}"; do
+    last=$(state_last_action "$mod")
+    when=${last%%$'\t'*}
+    action=$(cut -f2 <<<"$last")
+    if ! module_has_action "$mod" check; then
+      symbol="-" color=$C_DIM text="keine Prüfung"
+    else
+      warn=$(results_count WARN "$mod")
+      fail=$(results_count FAIL "$mod")
+      if ((warn + fail == 0)); then
+        symbol="✔" color=$C_GREEN text="umgesetzt"
+      elif [[ -z $last ]] && ((fail > 0)); then
+        symbol="✖" color=$C_RED text="nicht umgesetzt"
+        rc=2
+      else
+        symbol="⚠" color=$C_YELLOW text="$((warn + fail)) Abweichung(en)"
+        ((fail > 0)) && rc=2
+        ((rc == 0)) && rc=1
+      fi
+    fi
+    printf '%-16s %s%s%s %-20s %s\n' "$mod" "$color" "$symbol" "$C_RESET" "$text" \
+      "${last:+$when ($action)}"
+  done
+  : >"$RESULTS_FILE"
+
+  echo
+  revert_pending_notice
+  echo "Details: srvctl check <modul>"
+  return "$rc"
+}
+
 modules_list() {
   if ((${#MOD_NAMES[@]} == 0)); then
     log_info "Keine Module in ${SRVCTL_ROOT}/modules gefunden"
@@ -256,5 +312,6 @@ module_info() {
   printf 'Aktionen:       %s\n' "${actions[*]:-keine}"
   module_has_action "$name" rollback || printf '                (rollback: Standard – stellt Backups wieder her)\n'
   printf 'Abhängig von:   %s\n' "${MOD_DEPENDS[$name]:--}"
+  printf 'Lauscht als:    %s\n' "${MOD_LISTEN[$name]:--}"
   printf 'Benötigt von:   %s\n' "${dependents[*]:--}"
 }

@@ -10,7 +10,7 @@ SRVCTL_ROOT=$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")
 readonly SRVCTL_ROOT
 readonly SRVCTL_VERSION="0.1.0"
 
-for _lib in log core config safety helpers modules menu; do
+for _lib in log core config state safety input revert helpers modules menu; do
   # shellcheck source=/dev/null
   source "${SRVCTL_ROOT}/lib/${_lib}.sh" || {
     echo "srvctl: lib/${_lib}.sh konnte nicht geladen werden" >&2
@@ -29,6 +29,7 @@ QUIET=0
 USE_COLOR=auto
 CONFIG_EXTRA=""
 HOST_NAME=""
+FRESH=0
 
 usage() {
   cat <<EOF
@@ -43,6 +44,8 @@ Aktionen:
   setup <Modul ...|all>         Module einrichten (inkl. Abhängigkeiten)
   configure <Modul ...|all>     Module konfigurieren (inkl. Abhängigkeiten)
   rollback <Modul ...|all>      Letzte Änderungen eines Moduls zurücksetzen
+  status                        Überblick: Zustand aller Module
+  confirm                       Riskante Änderungen bestätigen (aus neuer Sitzung)
   list                          Verfügbare Module anzeigen
   info <Modul>                  Details zu einem Modul anzeigen
   backups                       Vorhandene Backups anzeigen
@@ -53,6 +56,7 @@ Optionen:
   -y, --yes                     Keine Rückfragen (für Automatisierung)
   -v, --verbose                 Ausführliche Ausgabe
   -q, --quiet                   Nur Warnungen, Fehler und Zusammenfassung
+      --fresh                   Zwischengespeicherte Ergebnisse ignorieren
       --no-color                Keine Farben
   -c, --config DATEI            Zusätzliche Konfigurationsdatei laden
       --host NAME               Host-Konfiguration für NAME laden
@@ -80,6 +84,7 @@ parse_args() {
       -v | --verbose) VERBOSE=1 ;;
       -q | --quiet) QUIET=1 ;;
       --no-color) USE_COLOR=0 ;;
+      --fresh) FRESH=1 ;;
       -c | --config)
         (($# >= 2)) || usage_error "Option $1 benötigt einen Dateinamen"
         CONFIG_EXTRA=$2
@@ -112,8 +117,12 @@ parse_args() {
       ((${#TARGETS[@]})) || usage_error "Aktion '$ACTION' benötigt mindestens ein Modul (oder 'all')"
       ;;
     info) ((${#TARGETS[@]} == 1)) || usage_error "Aktion 'info' benötigt genau ein Modul" ;;
-    list | backups | menu)
+    list | backups | menu | status | confirm)
       ((${#TARGETS[@]} == 0)) || usage_error "Aktion '$ACTION' erwartet keine weiteren Argumente"
+      ;;
+    _revert) # internal, started by the confirmation timer
+      [[ ${#TARGETS[@]} == 1 && ${TARGETS[0]} =~ ^[0-9]{8}-[0-9]{6}-[0-9]+$ ]] ||
+        usage_error "_revert benötigt eine Lauf-ID"
       ;;
     *) usage_error "Unbekannte Aktion: $ACTION" ;;
   esac
@@ -137,6 +146,7 @@ main() {
   log_open_file
   security_check_tree
   backup_init
+  state_init
   modules_load
 
   log_file_only "Start: srvctl ${orig_args[*]} (Benutzer: ${SUDO_USER:-root}, Host: ${CONFIG_HOST})"
@@ -146,8 +156,15 @@ main() {
     info) module_info "${TARGETS[0]}" ;;
     backups) backup_list ;;
     menu) menu_main ;;
+    status)
+      modules_status
+      exit "$?"
+      ;;
+    confirm) revert_confirm ;;
+    _revert) revert_run "${TARGETS[0]}" ;;
     check | setup | configure | rollback) run_action "$ACTION" "${TARGETS[@]}" ;;
   esac
+  revert_finalize || true
 
   summary_print
   exit "$(summary_exit_code)"

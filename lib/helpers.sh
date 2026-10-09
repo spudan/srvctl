@@ -184,3 +184,23 @@ check_conf() {
     result_fail "$file: $key = $actual (erwartet: $expected)"
   fi
 }
+
+# --- Firewall rules from other modules ---------------------------------------
+
+# firewall_rules MODULE <RULES - sets the nftables rules MODULE contributes to
+# the input chain of "table inet srvctl" (e.g. 'tcp dport { 80, 443 } accept').
+# Empty input removes them. The firewall module includes and loads the files.
+firewall_rules() {
+  local mod=$1 file content
+  file="${SRVCTL_FIREWALL_DIR:-/etc/srvctl/firewall.d}/${mod}.nft"
+  content=$(cat)
+  if [[ -z ${content//[[:space:]]/} ]]; then
+    FILE_CHANGED=0
+    [[ -e $file ]] || return 0
+    backup_file "$file" || return 1
+    run_cmd rm -f -- "$file" || return 1
+    FILE_CHANGED=1
+    return 0
+  fi
+  write_file "$file" 0600 <<<"# Verwaltet von srvctl (Modul: ${mod})"$'\n'"${content}"
+}

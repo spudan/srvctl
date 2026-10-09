@@ -27,6 +27,7 @@ core_init() {
 }
 
 core_cleanup() {
+  revert_finalize || true
   if [[ -n $RUN_DIR && -d $RUN_DIR ]]; then
     rm -rf -- "$RUN_DIR"
   fi
@@ -68,12 +69,12 @@ os_is() { [[ $OS_ID == "$1" ]]; }
 # os_version_ge VERSION - e.g. os_version_ge 12
 os_version_ge() { dpkg --compare-versions "${OS_VERSION:-0}" ge "$1"; }
 
-# Prevents concurrent modifying runs.
+# lock_acquire [WAIT_SECONDS] - prevents concurrent modifying runs
 lock_acquire() {
   [[ -n $LOCK_FD ]] && return 0
-  local lock=/run/lock/srvctl.lock
+  local lock=/run/lock/srvctl.lock wait=${1:-0}
   exec {LOCK_FD}>"$lock" || die "Lock-Datei $lock konnte nicht geöffnet werden"
-  flock -n "$LOCK_FD" || die "Eine andere srvctl-Instanz läuft bereits (Lock: $lock)"
+  flock -w "$wait" "$LOCK_FD" || die "Eine andere srvctl-Instanz läuft bereits (Lock: $lock)"
 }
 
 # _insecure_mode OCTAL - true if group/other writable
