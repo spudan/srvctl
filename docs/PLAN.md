@@ -317,7 +317,7 @@ Jede Änderung wird vor dem Neuladen mit `sshd -t` geprüft; neu geladen wird mi
 
 ## Bestehende Server (begonnen 2026-10-09)
 
-Framework: `<modul>::precheck` vor `setup`/`configure`, Stufen STOP (bricht ab, auch mit `--yes`; `--force` übergeht),
+Framework: `<modul>::precheck` vor `setup`/`configure` (bricht eine Vorabprüfung selbst ab, gilt das als STOP), Stufen STOP (bricht ab, auch mit `--yes`; `--force` übergeht),
 WARN (Rückfrage), INFO (übernommen). Prinzip: **übernehmen statt überschreiben**, sonst anhalten und die passende
 Konfigurationszeile nennen.
 
@@ -334,11 +334,22 @@ Konfigurationszeile nennen.
 | services | rpcbind bei NFS-Mounts | bleibt aktiv | umgesetzt |
 | base | ntp/ntpsec/openntpd, eigene Zeitserver, Zeitzonenwechsel | WARN; `BASE_TIME_REQUIRE_NTS`, `BASE_TIME_SERVERS` | umgesetzt |
 | base | eigene Quellen in unattended-upgrades | übernommen | umgesetzt |
-| users | strengere pwquality-Regeln, nologin für Dienstkonten mit Shell (git), Home 750 (public_html) | | offen |
-| crowdsec | fail2ban parallel, eigene Profile/Benachrichtigungen, iptables-Bouncer, Port 8080 | | offen |
-| integrity | bestehende AIDE-Mailberichte | | offen |
-| kernel | rp_filter bei Routern/VPN, benötigte Module (sctp, udf), kexec/kdump | | offen |
-| audit | eigenes `custom.prf` | | offen |
+| users | strengere pwquality-Regeln, Dienstkonten mit Shell (git, postgres), Home mit Webinhalten, bestehende sudo-Benutzer, su | übernommen bzw. ausgenommen (`USERS_SHELL_OK`, `USERS_HOME_OPEN_OK`); WARN für su | umgesetzt |
+| crowdsec | fail2ban parallel | WARN, Abschalten nach Einrichtung angeboten, Rollback schaltet es wieder ein | umgesetzt |
+| crowdsec | eigene Profile/Benachrichtigungen, iptables-Bouncer, Debian-Version, Port 8080 | STOP/WARN, `CROWDSEC_MANAGE_PROFILES=0` | umgesetzt |
+| integrity | bestehende AIDE-Mailberichte | WARN, Weiterleitung mit `INTEGRITY_MAIL_TO` | umgesetzt |
+| kernel | Weiterleitung aktiv, geladene Module der Sperrliste, kdump, überschreibende sysctl-Dateien | WARN `KERNEL_RP_FILTER=2`, STOP `KERNEL_BLACKLIST_KEEP`, kexec bei kdump erlaubt, INFO | umgesetzt |
+| audit | eigenes `custom.prf` | übernommen und angehängt | umgesetzt |
+
+
+### Offener Test auf dem VPS (vorbelasteter Server)
+1. `sudo srvctl -n setup all` – im Normalzustand kein `[STOP]`.
+2. Vorbelastung: `apt-get install -y nginx`; Benutzer `testuser` mit Shell und SSH-Schlüssel; Crontab für `testuser`;
+   für die übrigen Fälle zusätzlich fail2ban installieren.
+3. `sudo srvctl -n configure firewall ssh services users crowdsec kernel` – erwartet: STOP für tcp/80 (Vorschlag
+   `FIREWALL_TCP_PORTS="80"`), STOP für testuser (Vorschlag `SSH_ALLOW_GROUPS`), INFO cron.allow übernimmt testuser,
+   WARN fail2ban parallel.
+4. Aufräumen: nginx und fail2ban entfernen, Crontab und `testuser` löschen.
 
 ## Später: Benachrichtigung und Berichte (noch zu planen)
 

@@ -23,7 +23,36 @@ readonly _USERS_PAM_FILES="/etc/pam.d/common-auth /etc/pam.d/common-account /etc
 
 # --- Helpers -------------------------------------------------------------------
 
-_users_minlen() { cfg_get USERS_PASS_MINLEN 14; }
+# _users_pwq_existing KEY - pwquality value set outside srvctl (last file wins)
+_users_pwq_existing() {
+  local file value="" found
+  for file in /etc/security/pwquality.conf /etc/security/pwquality.conf.d/*.conf; do
+    [[ -f $file && $file != "$_USERS_PWQUALITY" ]] || continue
+    if found=$(conf_get "$file" "$1" "="); then value=$found; fi
+  done
+  echo "$value"
+}
+
+# Minimum length: configured value, or a stricter existing one
+_users_minlen() {
+  local want existing
+  want=$(cfg_get USERS_PASS_MINLEN 14)
+  existing=$(_users_pwq_existing minlen)
+  if [[ $existing =~ ^[0-9]+$ ]] && ((existing > want)); then want=$existing; fi
+  echo "$want"
+}
+
+# _users_pwq_keep KEY DEFAULT - keeps a stricter existing value: higher minclass,
+# negative credits (= required character classes)
+_users_pwq_keep() {
+  local existing
+  existing=$(_users_pwq_existing "$1")
+  case $1 in
+    minclass) [[ $existing =~ ^[0-9]+$ ]] && ((existing > $2)) && { echo "$existing"; return; } ;;
+    *credit) [[ $existing =~ ^-[0-9]+$ ]] && { echo "$existing"; return; } ;;
+  esac
+  echo "$2"
+}
 
 _users_state() { state_path users admins; }
 
@@ -241,7 +270,11 @@ _users_add_admin() {
     run_cmd useradd --create-home --shell /bin/bash --groups "sudo,${_USERS_GROUP}" --comment "Admin (srvctl)" "$name"
   fi
   _users_write_keys "$name" "${key_lines[@]}"
-  _users_set_password "$name"
+  if [[ $(_users_password_status "$name") == P ]] && confirm "Bestehendes Passwort von $name behalten (für sudo)?"; then
+    log_info "Passwort von $name bleibt unverändert"
+  else
+    _users_set_password "$name"
+  fi
   result_ok "Admin $name eingerichtet (${#key_lines[@]} Schlüssel)"
   log_info "Bitte jetzt in einem NEUEN Terminal testen: ssh ${name}@<server> und dort 'sudo -v'"
 }
@@ -417,12 +450,13 @@ _users_backup_pam() {
 _users_apply_pwquality() {
   write_file "$_USERS_PWQUALITY" 0644 <<<"# ${_USERS_HEADER}
 # Lang statt kompliziert (NIST SP 800-63B / BSI): keine Zeichenklassen erzwungen
+# Strengere bestehende Werte werden übernommen, nicht abgeschwächt
 minlen = $(_users_minlen)
-minclass = 0
-dcredit = 0
-ucredit = 0
-lcredit = 0
-ocredit = 0
+minclass = $(_users_pwq_keep minclass 0)
+dcredit = $(_users_pwq_keep dcredit 0)
+ucredit = $(_users_pwq_keep ucredit 0)
+lcredit = $(_users_pwq_keep lcredit 0)
+ocredit = $(_users_pwq_keep ocredit 0)
 dictcheck = 1
 usercheck = 1
 retry = 3
@@ -598,10 +632,29 @@ _users_apply_root() {
 
 _users_empty_passwords() { awk -F: '$2 == "" { print $1 }' /etc/shadow; }
 
-# System accounts (UID 1-999) with a login shell
+# System accounts (UID 1-999) with a login shell. Accounts that need their
+# shell stay out: with SSH keys (e.g. git for Gitea), in SSH_ALLOW_GROUPS or
+# listed in USERS_SHELL_OK (default: postgres).
 _users_system_shells() {
+  local user home ok groups
+  ok=" $(cfg_get USERS_SHELL_OK "postgres") "
+  groups=$(cfg_get SSH_ALLOW_GROUPS "")
   awk -F: '$3 > 0 && $3 < 1000 && $1 !~ /^(sync|shutdown|halt)$/ &&
-    $7 !~ /(nologin|false)$/ && $7 != "" { print $1 }' /etc/passwd
+    $7 !~ /(nologin|false)$/ && $7 != "" { print $1 ":" $6 }' /etc/passwd |
+    while IFS=: read -r user home; do
+      [[ $ok == *" $user "* ]] && continue
+      [[ -s $home/.ssh/authorized_keys ]] && continue
+      if [[ -n $groups ]] && id -nG "$user" 2>/dev/null | tr ' ' '\n' | grep -qxF -f <(tr ' ' '\n' <<<"$groups"); then
+        continue
+      fi
+      echo "$user"
+    done
+}
+
+# System accounts that keep their shell (for the pre-check)
+_users_system_shells_kept() {
+  comm -23 <(awk -F: '$3 > 0 && $3 < 1000 && $1 !~ /^(sync|shutdown|halt)$/ &&
+    $7 !~ /(nologin|false)$/ && $7 != "" { print $1 }' /etc/passwd | sort) <(_users_system_shells | sort)
 }
 
 # Home directories of regular users accessible by others or writable by group
@@ -611,8 +664,22 @@ _users_open_homes() {
     ((uid >= 1000 && uid < 65534)) || continue
     [[ -d $home ]] || continue
     mode=$(stat -c '%a' "$home")
-    if (((8#$mode & 8#027) != 0)); then echo "$user:$home:$mode"; fi
+    (((8#$mode & 8#027) != 0)) || continue
+    _users_home_serves_web "$user" "$home" && continue
+    echo "$user:$home:$mode"
   done </etc/passwd
+}
+
+# Homes a web server reads from (public_html etc., group www-data) or listed
+# in USERS_HOME_OPEN_OK stay accessible
+_users_home_serves_web() {
+  local user=$1 home=$2 dir
+  [[ " $(cfg_get USERS_HOME_OPEN_OK "") " == *" $user "* ]] && return 0
+  [[ $(stat -c '%G' "$home") == www-data ]] && return 0
+  for dir in public_html www htdocs web; do
+    [[ -d $home/$dir ]] && return 0
+  done
+  return 1
 }
 
 _users_check_accounts() {
@@ -656,6 +723,48 @@ _users_fix_accounts() {
       run_cmd chmod g-w,o-rwx "${item%:*}"
     done
     result_ok "Home-Verzeichnisse beschränkt"
+  fi
+}
+
+# --- Pre-check against the existing system ----------------------------------------
+
+users::precheck() {
+  local key existing kept="" list
+  for key in minlen minclass dcredit ucredit lcredit ocredit; do
+    existing=$(_users_pwq_existing "$key")
+    [[ -n $existing ]] || continue
+    if [[ $key == minlen ]]; then
+      [[ $existing =~ ^[0-9]+$ ]] && ((existing > $(cfg_get USERS_PASS_MINLEN 14))) && kept+="$key=$existing "
+    elif [[ $(_users_pwq_keep "$key" 0) == "$existing" && $existing != 0 ]]; then
+      kept+="$key=$existing "
+    fi
+  done
+  if [[ -n $kept ]]; then
+    precheck_info "Strengere bestehende Passwortregeln bleiben: ${kept% }"
+  fi
+  list=$(_users_system_shells_kept | paste -sd ' ')
+  if [[ -n $list ]]; then
+    precheck_info "Dienstkonten behalten ihre Shell (SSH-Schlüssel, SSH_ALLOW_GROUPS oder USERS_SHELL_OK): $list"
+  fi
+  local user home others=()
+  while IFS=: read -r user _ _ _ _ home _; do
+    [[ -d $home ]] || continue
+    _users_home_serves_web "$user" "$home" && others+=("$user")
+  done < <(awk -F: '$3 >= 1000 && $3 < 65534' /etc/passwd)
+  if ((${#others[@]})); then
+    precheck_info "Home-Verzeichnisse mit Webinhalten bleiben zugänglich: ${others[*]}"
+  fi
+  local sudoers admins
+  admins=" $(_users_admins | paste -sd ' ') "
+  sudoers=$(_users_group_members sudo | while read -r user; do [[ $admins == *" $user "* ]] || echo "$user"; done | paste -sd ' ')
+  if [[ -n $sudoers ]]; then
+    precheck_info "Bestehende sudo-Benutzer ($sudoers) bleiben unverändert – als srvctl-Admin übernehmen: 'srvctl configure users' → Admin hinzufügen (Passwort kann bleiben)"
+  fi
+  local su_users
+  su_users=$(awk -F: '$3 >= 1000 && $3 < 65534 && $7 !~ /(nologin|false)$/ { print $1 }' /etc/passwd |
+    while read -r user; do id -nG "$user" | tr ' ' '\n' | grep -qx sudo || echo "$user"; done | paste -sd ' ')
+  if [[ -n $su_users ]] && ! grep -qE '^auth[[:space:]]+required[[:space:]]+pam_wheel' /etc/pam.d/su 2>/dev/null; then
+    precheck_warn "su ist danach nur noch für die Gruppe sudo erlaubt – betroffen: $su_users"
   fi
 }
 

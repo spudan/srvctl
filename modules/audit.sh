@@ -157,11 +157,21 @@ _audit_exceptions() {
   done
 }
 
+# Own custom.prf content from before srvctl (kept in the state directory)
+_audit_adopted_file() { state_path audit custom.prf.orig; }
+
 _audit_apply() {
   local id reason content="# ${_AUDIT_HEADER}"$'\n'"# Bewusste Entscheidungen dieses Projekts (docs/PLAN.md) – werden von Lynis nicht bewertet"$'\n'
   while read -r id reason; do
     content+=$'\n'"# ${reason}"$'\n'"skip-test=${id}"$'\n'
   done < <(_audit_exceptions)
+  # Adopt an existing custom profile instead of dropping it
+  if [[ -f $_AUDIT_PROFILE ]] && ! grep -q 'Verwaltet von srvctl' "$_AUDIT_PROFILE"; then
+    write_file "$(_audit_adopted_file)" 0600 <"$_AUDIT_PROFILE"
+  fi
+  if [[ -s $(_audit_adopted_file) ]]; then
+    content+=$'\n'"# --- Übernommen aus dem bisherigen custom.prf ---"$'\n'"$(<"$(_audit_adopted_file)")"$'\n'
+  fi
   write_file "$_AUDIT_PROFILE" 0640 <<<"${content%$'\n'}"
   if ((FILE_CHANGED)) && [[ -f $_AUDIT_REPORT ]]; then
     log_info "Ausnahmen geändert – der nächste 'srvctl check audit' erstellt einen neuen Bericht"
@@ -177,6 +187,12 @@ OnCalendar=weekly"
     run_cmd systemctl daemon-reload
   fi
   svc_enable lynis.timer
+}
+
+audit::precheck() {
+  if [[ -f $_AUDIT_PROFILE ]] && ! grep -q 'Verwaltet von srvctl' "$_AUDIT_PROFILE"; then
+    precheck_info "Bestehendes $_AUDIT_PROFILE wird übernommen und um die Ausnahmen von srvctl ergänzt"
+  fi
 }
 
 # --- Actions -------------------------------------------------------------------

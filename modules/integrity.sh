@@ -145,6 +145,10 @@ umask 027
 file="${_INT_REPORT_DIR}/srvctl-report-\$(date +%Y%m%d-%H%M%S).txt"
 cat > "\$file"
 logger -t srvctl-aide -p auth.notice "AIDE-Tagesbericht gespeichert: \$file"
+forward="$(cfg_get INTEGRITY_MAIL_TO "")"
+if [ -n "\$forward" ] && command -v mail >/dev/null; then
+  mail -s "AIDE-Bericht \$(hostname -f)" "\$forward" < "\$file" || logger -t srvctl-aide "Weiterleitung an \$forward fehlgeschlagen"
+fi
 find "${_INT_REPORT_DIR}" -maxdepth 1 -name 'srvctl-report-*.txt' -mtime +90 -delete 2>/dev/null
 exit 0
 EOF
@@ -228,6 +232,23 @@ _int_acknowledge() {
     result_ok "${#findings[@]} AIDE-Fund(e) quittiert"
   else
     result_warn "AIDE-Funde nicht quittiert"
+  fi
+}
+
+# --- Pre-check against the existing system ----------------------------------------
+
+integrity::precheck() {
+  local mailto mailcmd
+  mailto=$(conf_get "$_INT_DEFAULTS" MAILTO "=" 2>/dev/null | tr -d '"') || mailto=""
+  mailcmd=$(conf_get "$_INT_DEFAULTS" MAILCMD "=" 2>/dev/null | tr -d '"') || mailcmd=""
+  if [[ -n $mailcmd && $mailcmd != "$_INT_REPORTER" ]]; then
+    precheck_warn "Eigener Mailversand der AIDE-Berichte ($mailcmd) wird durch die Ablage für srvctl ersetzt"
+  fi
+  if [[ -n $mailto && $mailto != root && -z $(cfg_get INTEGRITY_MAIL_TO "") ]]; then
+    precheck_warn "AIDE-Berichte gehen bisher per Mail an $mailto – weiterhin weiterleiten mit INTEGRITY_MAIL_TO=\"$mailto\""
+  fi
+  if [[ -s $_INT_DB ]]; then
+    precheck_info "Bestehende AIDE-Baseline wird weiterverwendet ($_INT_DB)"
   fi
 }
 

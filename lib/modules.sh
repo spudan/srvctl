@@ -289,13 +289,19 @@ modules_precheck() {
   shift
   local file="${RUN_DIR}/precheck"
   : >"$file"
+  local rc
   for mod; do
     module_has_action "$mod" precheck || continue
     (
       CURRENT_MODULE=$mod
       CURRENT_ACTION=$action
       "${mod}::precheck" "$action"
-    ) >/dev/null 2>&1
+    ) >/dev/null 2>"${RUN_DIR}/precheck.err"
+    rc=$?
+    # A failing pre-check must not look like "no conflicts"
+    if ((rc != 0)); then
+      printf 'BLOCK\t%s\t%s\n' "$mod" "Vorabprüfung fehlgeschlagen (Exit-Code $rc): $(tail -n 1 "${RUN_DIR}/precheck.err")" >>"$file"
+    fi
   done
   [[ -s $file ]] || return 0
 

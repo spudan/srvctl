@@ -31,6 +31,7 @@ _cs_collections() {
 }
 
 _cs_ban_hours() { cfg_get CROWDSEC_BAN_HOURS 4; }
+_cs_manage_profiles() { [[ $(cfg_get CROWDSEC_MANAGE_PROFILES 1) == 1 ]]; }
 
 _cs_validate() {
   local ok=0 entry
@@ -204,8 +205,10 @@ labels:
     if ((FILE_CHANGED)); then _CS_CHANGED=1; fi
   fi
 
-  write_file "$_CS_PROFILES" 0644 <<<"$(_cs_profiles)"
-  if ((FILE_CHANGED)); then _CS_CHANGED=1; fi
+  if _cs_manage_profiles; then
+    write_file "$_CS_PROFILES" 0644 <<<"$(_cs_profiles)"
+    if ((FILE_CHANGED)); then _CS_CHANGED=1; fi
+  fi
 
   local whitelist
   whitelist=$(_cs_whitelist)
@@ -341,10 +344,16 @@ _cs_check() {
     fi
   fi
 
-  if grep -q 'duration_expr' "$_CS_PROFILES" 2>/dev/null; then
+  if ! _cs_manage_profiles; then
+    result_ok "profiles.yaml wird nicht von srvctl verwaltet (CROWDSEC_MANAGE_PROFILES=0)"
+  elif grep -q 'duration_expr' "$_CS_PROFILES" 2>/dev/null; then
     result_ok "Sperrdauer $(_cs_ban_hours) h, bei Wiederholung steigend"
   else
     result_warn "Sperrdauer steigt bei Wiederholung nicht (profiles.yaml)"
+  fi
+
+  if svc_is_active fail2ban; then
+    result_warn "fail2ban läuft parallel zu CrowdSec (doppelte Erkennung und Sperren) – 'srvctl configure crowdsec' bietet das Abschalten an"
   fi
 
   local tables
@@ -355,6 +364,60 @@ _cs_check() {
     result_ok "Bouncer aktiv (nftables)${decisions:+, $decisions gesperrte Adressen/Netze}"
   else
     result_fail "Bouncer-Tabellen fehlen in nftables – Sperren wirken nicht"
+  fi
+}
+
+# CrowdSec replaces fail2ban: offer to switch it off once CrowdSec works
+_cs_offer_fail2ban() {
+  svc_is_active fail2ban || svc_is_enabled fail2ban || return 0
+  if ((!DRY_RUN)) && ! svc_is_active crowdsec-firewall-bouncer; then
+    result_warn "fail2ban bleibt aktiv, bis der CrowdSec-Bouncer läuft"
+    return 0
+  fi
+  if ! confirm "fail2ban stoppen und deaktivieren? CrowdSec übernimmt den Schutz"; then
+    result_warn "fail2ban läuft parallel weiter (doppelte Erkennung und Sperren)"
+    return 0
+  fi
+  run_cmd systemctl disable --now fail2ban
+  write_file "$(state_path crowdsec fail2ban-disabled)" 0600 <<<"$RUN_ID"
+  result_ok "fail2ban abgeschaltet – CrowdSec übernimmt (Rollback schaltet es wieder ein)"
+}
+
+# --- Pre-check against the existing system ----------------------------------------
+
+# True if FILE differs from the version the crowdsec package shipped
+_cs_conffile_modified() {
+  local file=$1 orig
+  orig=$(dpkg-query -W -f='${Conffiles}\n' crowdsec 2>/dev/null | awk -v f="$file" '$1 == f { print $2 }')
+  [[ -n $orig && -f $file ]] || return 1
+  [[ $(md5sum <"$file" | cut -d' ' -f1) != "$orig" ]]
+}
+
+crowdsec::precheck() {
+  if svc_is_active fail2ban || svc_is_enabled fail2ban; then
+    precheck_warn "fail2ban ist aktiv – nach erfolgreicher Einrichtung von CrowdSec wird angeboten, fail2ban abzuschalten"
+  fi
+  if pkg_installed crowdsec-firewall-bouncer-iptables; then
+    precheck_warn "crowdsec-firewall-bouncer-iptables wird durch den nftables-Bouncer ersetzt"
+  fi
+  if pkg_installed crowdsec; then
+    local version
+    version=$(dpkg-query -W -f='${Version}' crowdsec)
+    if dpkg --compare-versions "$version" lt 1.5; then
+      precheck_warn "CrowdSec $version (Debian) wird auf die aktuelle Version aus dem offiziellen Repository aktualisiert"
+    fi
+    if _cs_manage_profiles && [[ -f $_CS_PROFILES ]] && ! grep -q 'Verwaltet von srvctl' "$_CS_PROFILES"; then
+      if grep -qE '^[[:space:]]*notifications:' "$_CS_PROFILES"; then
+        precheck_block "$_CS_PROFILES enthält eigene Benachrichtigungen, die ersetzt würden – CROWDSEC_MANAGE_PROFILES=0 setzen (Sperrdauer dann selbst pflegen)"
+      elif _cs_conffile_modified "$_CS_PROFILES"; then
+        precheck_warn "Eigene $_CS_PROFILES wird ersetzt (Backup bleibt) – behalten mit CROWDSEC_MANAGE_PROFILES=0"
+      fi
+    fi
+  fi
+  local port_user
+  port_user=$(ss -Htlnp 'sport = :8080' 2>/dev/null | grep -o 'users:(("[^"]*"' | cut -d'"' -f2 | grep -v '^crowdsec$' | sort -u | paste -sd ' ')
+  if [[ -n $port_user ]]; then
+    precheck_block "Port 8080 (lokale CrowdSec-API) ist durch $port_user belegt – CrowdSec würde nicht starten"
   fi
 }
 
@@ -408,4 +471,16 @@ crowdsec::configure() {
     run_cmd systemctl restart crowdsec-firewall-bouncer
   fi
   _cs_apply_enroll
+  _cs_offer_fail2ban
+}
+
+# Restores the files and switches fail2ban on again if srvctl disabled it.
+crowdsec::rollback() {
+  local f2b=0
+  if [[ -f $(state_path crowdsec fail2ban-disabled) ]]; then f2b=1; fi
+  backup_restore_module crowdsec
+  if ((f2b)) && [[ ! -f $(state_path crowdsec fail2ban-disabled) ]]; then
+    run_cmd systemctl enable --now fail2ban
+    result_ok "fail2ban wieder eingeschaltet"
+  fi
 }

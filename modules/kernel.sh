@@ -30,7 +30,7 @@ _kernel_sysctls() {
   local key
   # Network
   for key in all default; do
-    echo "net.ipv4.conf.${key}.rp_filter 1"
+    echo "net.ipv4.conf.${key}.rp_filter $(cfg_get KERNEL_RP_FILTER 1)"
     echo "net.ipv4.conf.${key}.accept_redirects 0"
     echo "net.ipv4.conf.${key}.secure_redirects 0"
     echo "net.ipv4.conf.${key}.send_redirects 0"
@@ -48,7 +48,6 @@ kernel.kptr_restrict 2
 kernel.dmesg_restrict 1
 kernel.unprivileged_bpf_disabled 1
 net.core.bpf_jit_harden 2
-kernel.kexec_load_disabled 1
 kernel.perf_event_paranoid 3
 kernel.sysrq 0
 dev.tty.ldisc_autoload 0
@@ -60,6 +59,10 @@ fs.protected_symlinks 1
 fs.protected_fifos 2
 fs.protected_regular 2
 EOF
+  # kdump needs kexec
+  if ! _kernel_kexec_needed; then
+    echo "kernel.kexec_load_disabled 1"
+  fi
   if [[ $(cfg_get KERNEL_UNPRIV_USERNS 1) == 0 ]]; then
     echo "kernel.unprivileged_userns_clone 0"
   fi
@@ -73,10 +76,23 @@ _kernel_sysctls_supported() {
   done < <(_kernel_sysctls)
 }
 
-_kernel_blacklist() { echo "$_KERNEL_BLACKLIST $(cfg_get KERNEL_BLACKLIST_EXTRA "")"; }
+_kernel_kexec_needed() { pkg_installed kdump-tools || [[ $(cfg_get KERNEL_KEXEC_ALLOW 0) == 1 ]]; }
+
+# Blocked modules: default list + KERNEL_BLACKLIST_EXTRA − KERNEL_BLACKLIST_KEEP
+_kernel_blacklist() {
+  local keep mod
+  keep=" $(cfg_get KERNEL_BLACKLIST_KEEP "") "
+  for mod in $_KERNEL_BLACKLIST $(cfg_get KERNEL_BLACKLIST_EXTRA ""); do
+    [[ $keep == *" $mod "* ]] || echo "$mod"
+  done | paste -sd ' '
+}
 
 _kernel_validate() {
   local ok=0 mod
+  [[ $(cfg_get KERNEL_RP_FILTER 1) =~ ^[012]$ ]] || {
+    result_fail "KERNEL_RP_FILTER: '$(cfg_get KERNEL_RP_FILTER)' ist ungültig (0, 1 = strikt, 2 = lose)"
+    ok=1
+  }
   [[ $(cfg_get KERNEL_PTRACE_SCOPE 1) =~ ^[0-3]$ ]] || {
     result_fail "KERNEL_PTRACE_SCOPE: '$(cfg_get KERNEL_PTRACE_SCOPE)' ist ungültig (0–3)"
     ok=1
@@ -291,6 +307,46 @@ DefaultLimitCORE=0"
 [Coredump]
 Storage=none
 ProcessSizeMax=0"
+  fi
+}
+
+# --- Pre-check against the existing system ----------------------------------------
+
+# sysctl files processed after ours (systemd-sysctl: later file names win)
+_kernel_sysctl_overrides() {
+  local key value file name
+  while read -r key value; do
+    for file in /etc/sysctl.d/*.conf /run/sysctl.d/*.conf /usr/lib/sysctl.d/*.conf /etc/sysctl.conf; do
+      [[ -f $file && $file != "$_KERNEL_SYSCTL" ]] || continue
+      name=${file##*/}
+      [[ $file == /etc/sysctl.conf ]] && name=99-sysctl.conf
+      [[ $name > ${_KERNEL_SYSCTL##*/} ]] || continue
+      if grep -qE "^[[:space:]]*${key//./[./]}[[:space:]]*=" "$file"; then
+        echo "$key ($file)"
+      fi
+    done
+  done < <(_kernel_sysctls_supported)
+}
+
+kernel::precheck() {
+  if [[ $(sysctl -n net.ipv4.ip_forward 2>/dev/null) == 1 ]] && [[ $(cfg_get KERNEL_RP_FILTER 1) == 1 ]]; then
+    precheck_warn "IP-Weiterleitung ist aktiv (Router, VPN, Container) – striktes rp_filter kann asymmetrisches Routing brechen; lose: KERNEL_RP_FILTER=2"
+  fi
+  local mod used=()
+  for mod in $(_kernel_blacklist); do
+    if lsmod | awk '{ print $1 }' | grep -qx "${mod//-/_}"; then used+=("$mod"); fi
+  done
+  if findmnt -rn -t udf -o TARGET >/dev/null 2>&1 && [[ " $(_kernel_blacklist) " == *" udf "* ]]; then used+=("udf (eingehängt)"); fi
+  if ((${#used[@]})); then
+    precheck_block "Diese zu sperrenden Kernelmodule sind geladen und werden vermutlich gebraucht: ${used[*]} – behalten mit KERNEL_BLACKLIST_KEEP=\"${used[*]%% *}\""
+  fi
+  if pkg_installed kdump-tools; then
+    precheck_info "kdump ist installiert – kexec_load_disabled wird nicht gesetzt"
+  fi
+  local overrides
+  overrides=$(_kernel_sysctl_overrides | paste -sd ' ')
+  if [[ -n $overrides ]]; then
+    precheck_info "Diese Werte werden von später geladenen sysctl-Dateien überschrieben: $overrides"
   fi
 }
 
