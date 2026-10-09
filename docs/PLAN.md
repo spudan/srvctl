@@ -16,8 +16,8 @@ BSI IT-Grundschutz SYS.1.3, Mozilla/ssh-audit-Empfehlungen für SSH. Gemessen wi
 | 7 | `services` – unnötige Dienste, offene Ports | – | umgesetzt, Test auf VPS offen |
 | 8 | `logging` – journald, auditd, Logrotation | – | umgesetzt, auf VPS getestet |
 | 9 | `apparmor` – AppArmor im Enforce-Modus | – | umgesetzt, auf VPS getestet |
-| 10 | `integrity` – AIDE, Paketintegrität | – | umgesetzt, Test auf VPS offen |
-| 11 | `audit` – Lynis-Prüfung (nur check) | – | geplant |
+| 10 | `integrity` – AIDE, Paketintegrität | – | umgesetzt, auf VPS getestet |
+| 11 | `audit` – Lynis-Prüfung (nur check) | – | umgesetzt, Test auf VPS offen |
 
 Später (Dienst-Module, nach der Härtung): `docker`, ggf. `nginx`, `tailscale`, zentrales Logging, ggf. Mailversand.
 
@@ -297,6 +297,11 @@ Jede Änderung wird vor dem Neuladen mit `sshd -t` geprüft; neu geladen wird mi
 - Eigenes Lynis-Profil mit **bewussten Ausnahmen** aus dieser Planung (z. B. kein Passwortablauf, Port 22, kein `noexec` auf `/tmp`).
 - Wöchentlicher Timer speichert den Bericht; `check` nutzt ihn, solange er jünger als 7 Tage ist.
   `srvctl --fresh check audit` erzwingt einen neuen Lauf.
+- Umsetzung: Debians `lynis.timer` per Drop-in auf wöchentlich; Bericht `/var/log/lynis-report.dat`.
+  Ausnahmen in `/etc/lynis/custom.prf`, auch für Teilprüfungen (`SSH-7408:PORT`), mit Begründung.
+- Erste Ausnahmen: AUTH-9282/9286 (kein Passwortablauf), SSH-7408:PORT, SSH-7408:ALLOWTCPFORWARDING,
+  HRDN-7230 (kein Malware-Scanner). Weitere nach dem ersten Lauf auf dem VPS gemeinsam festlegen.
+- Mit dem entpackten Paket gegen den (ungehärteten) Entwicklungsrechner getestet: Index 65, Teilausnahmen greifen.
 
 ## Framework-Erweiterungen (aus der Planung) – umgesetzt
 - Helfer `ask` für Texteingaben (mit Validierung, mehrzeilig für Schlüssel), `ask_password` (verdeckt, doppelte Eingabe).
