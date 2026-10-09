@@ -7,8 +7,8 @@ BSI IT-Grundschutz SYS.1.3, Mozilla/ssh-audit-Empfehlungen für SSH. Gemessen wi
 
 | # | Modul | Abhängig von | Status |
 |---|---|---|---|
-| 1 | `base` – Updates, Zeit, Locale, Paketquellen, Pakete | – | umgesetzt, Test auf VPS offen |
-| 2 | `users` – Admin-Benutzer, sudo, root, Passwort-Richtlinien | – | geplant |
+| 1 | `base` – Updates, Zeit, Locale, Paketquellen, Pakete | – | umgesetzt, auf VPS getestet |
+| 2 | `users` – Admin-Benutzer, sudo, root, Passwort-Richtlinien | – | umgesetzt, Test auf VPS offen |
 | 3 | `ssh` – SSH-Härtung | users | geplant |
 | 4 | `firewall` – nftables | – | geplant |
 | 5 | `crowdsec` – Brute-Force-Schutz, Blocklisten (statt fail2ban) | firewall | geplant |
@@ -80,6 +80,10 @@ Später (Dienst-Module, nach der Härtung): `docker`, ggf. `nginx`, `tailscale`,
 - Modern nach NIST SP 800-63B / BSI: Mindestlänge 14, keine erzwungenen Zeichenklassen, **kein Ablauf**,
   Wörterbuchabgleich (`pam_pwquality`). Lynis-Hinweis zum fehlenden Ablauf wird bewusst akzeptiert.
 - Hash `yescrypt` (prüfen), `umask 027`, `pam_faillock`: 5 Fehlversuche → 15 Minuten Sperre.
+- Umsetzung: eigene `pwquality.conf.d/srvctl.conf`; `pam_faillock` über zwei `pam-auth-update`-Profile (CIS-Vorlage),
+  keine Handarbeit an `common-auth`. Debians `HOME_MODE 0700` bleibt (strenger als 0750).
+- Rollback stellt Konfigurationsdateien wieder her und entsperrt root, falls srvctl es gesperrt hat;
+  angelegte Admins und Passwörter bleiben.
 
 ### Kontenprüfung
 | Prüfung | Bei Abweichung |
