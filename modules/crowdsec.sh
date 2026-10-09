@@ -20,6 +20,7 @@ readonly _CS_PROFILES=/etc/crowdsec/profiles.yaml
 readonly _CS_WHITELIST=/etc/crowdsec/parsers/s02-enrich/srvctl-whitelist.yaml
 readonly _CS_ACQUIS=/etc/crowdsec/acquis.d/srvctl-sshd.yaml
 readonly _CS_METRICS=http://127.0.0.1:6060/metrics
+readonly _CS_BOUNCER_CONF=/etc/crowdsec/bouncers/crowdsec-firewall-bouncer.yaml
 readonly _CS_PACKAGES="crowdsec crowdsec-firewall-bouncer-nftables"
 readonly _CS_HEADER="Verwaltet von srvctl (Modul: crowdsec) – manuelle Änderungen werden überschrieben"
 
@@ -218,6 +219,38 @@ labels:
   fi
 }
 
+_cs_bouncer_key() { sed -n 's/^api_key:[[:space:]]*//p' "$_CS_BOUNCER_CONF" 2>/dev/null; }
+
+_cs_bouncer_key_missing() {
+  local key
+  key=$(_cs_bouncer_key)
+  [[ -z $key || $key == "<API_KEY>" || $key == '${API_KEY}' ]]
+}
+
+# The bouncer's postinst registers itself via cscli. If CrowdSec is installed
+# in the same apt run it is often not configured yet, the registration fails
+# and the config keeps the placeholder "<API_KEY>", so the service cannot start.
+_cs_ensure_bouncer_key() {
+  _cs_bouncer_key_missing || return 0
+  if ((DRY_RUN)); then
+    log_dry "Bouncer bei der lokalen API registrieren und API-Schlüssel eintragen"
+    return 0
+  fi
+  log_info "Firewall-Bouncer hat keinen API-Schlüssel – wird bei der lokalen API registriert"
+  local id key
+  id="crowdsec-firewall-bouncer-$(date +%s)"
+  # Not via run_cmd: the key must not end up in the log.
+  _log_file CMD "cscli -oraw bouncers add $id"
+  key=$(cscli -oraw bouncers add "$id")
+  if [[ ! $key =~ ^[A-Za-z0-9+/=_-]+$ ]]; then
+    result_fail "Bouncer konnte nicht registriert werden (cscli bouncers add)"
+    return 1
+  fi
+  file_sed "$_CS_BOUNCER_CONF" "s|^api_key:.*$|api_key: ${key}|"
+  printf '%s\n' "$id" >"${_CS_BOUNCER_CONF}.id"
+  result_ok "Firewall-Bouncer registriert ($id)"
+}
+
 _cs_apply_enroll() {
   local key state
   key=$(cfg_get CROWDSEC_ENROLL_KEY "")
@@ -262,6 +295,9 @@ _cs_check() {
 
   check_service crowdsec
   check_service crowdsec-firewall-bouncer
+  if _cs_bouncer_key_missing; then
+    result_fail "Firewall-Bouncer hat keinen API-Schlüssel – 'srvctl configure crowdsec'"
+  fi
   if ! svc_is_enabled crowdsec-hubupdate.timer; then
     result_warn "Tägliches Hub-Update (crowdsec-hubupdate.timer) ist nicht aktiv"
   fi
@@ -361,6 +397,12 @@ crowdsec::configure() {
     result_ok "CrowdSec-Konfiguration ist aktuell"
   fi
   svc_enable crowdsec
-  svc_enable crowdsec-firewall-bouncer
+  _cs_ensure_bouncer_key
+  if svc_is_active crowdsec-firewall-bouncer; then
+    : # running with a valid key
+  else
+    run_cmd systemctl enable crowdsec-firewall-bouncer
+    run_cmd systemctl restart crowdsec-firewall-bouncer
+  fi
   _cs_apply_enroll
 }
