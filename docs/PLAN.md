@@ -14,8 +14,8 @@ BSI IT-Grundschutz SYS.1.3, Mozilla/ssh-audit-Empfehlungen für SSH. Gemessen wi
 | 5 | `crowdsec` – Brute-Force-Schutz, Blocklisten (statt fail2ban) | firewall | umgesetzt, auf VPS getestet |
 | 6 | `kernel` – sysctl, Kernelmodule, Mount-Optionen | – | umgesetzt, auf VPS getestet |
 | 7 | `services` – unnötige Dienste, offene Ports | – | umgesetzt, Test auf VPS offen |
-| 8 | `logging` – journald, auditd, Logrotation | – | umgesetzt, Test auf VPS offen |
-| 9 | `apparmor` – AppArmor im Enforce-Modus | – | geplant |
+| 8 | `logging` – journald, auditd, Logrotation | – | umgesetzt, auf VPS getestet |
+| 9 | `apparmor` – AppArmor im Enforce-Modus | – | umgesetzt, Test auf VPS offen |
 | 10 | `integrity` – AIDE, Paketintegrität | – | geplant |
 | 11 | `audit` – Lynis-Prüfung (nur check) | – | geplant |
 
@@ -270,10 +270,14 @@ Jede Änderung wird vor dem Neuladen mit `sshd -t` geprüft; neu geladen wird mi
 - `audit=1 audit_backlog_limit=8192` über `/etc/default/grub.d/srvctl-audit.cfg` (wirkt nach Neustart).
 
 ## 9. `apparmor`
-- `apparmor-utils` und `apparmor-profiles-extra` installieren; prüfen, ob AppArmor im Kernel aktiv ist.
+- `apparmor-utils` installieren; prüfen, ob AppArmor im Kernel aktiv ist.
+- **Planänderung:** `apparmor-profiles-extra` wird nicht installiert – für Debian 13 enthält es nur Desktop-Programme
+  (totem, pidgin, irssi, apt-cacher-ng). Server-Profile kommen mit den Dienst-Paketen (z. B. chrony, bind9, später Docker).
 - Profile, die Debian im Enforce-Modus ausliefert, bleiben dort; Complain-Profile werden gemeldet.
   `APPARMOR_ENFORCE="…"` stellt einzelne Profile gezielt auf Enforce.
-- `check`: `aa-unconfined` – nach außen lauschende Dienste ohne Profil = WARN.
+- `check`: öffentlich lauschende Dienste ohne Profil = WARN (über `net_listeners` und `/proc/PID/attr/apparmor/current`);
+  `APPARMOR_UNCONFINED_OK` (Standard `sshd` – braucht beliebige Shells, Debian liefert kein Profil).
+- Rollback stellt per srvctl auf enforce gestellte Profile wieder auf complain.
 
 ## 10. `integrity`
 - **AIDE** mit Debian-Standardregeln, tägliche Prüfung per Timer, Ergebnis im journald; `check` meldet den letzten Befund.
