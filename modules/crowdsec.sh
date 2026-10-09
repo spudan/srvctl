@@ -328,13 +328,16 @@ _cs_check() {
     result_fail "CrowdSec liest das SSH-Journal nicht (keine Erfassung für ssh.service)"
   else
     local hits
-    hits=$(_cs_metric cs_journalctlsource_hits_total ssh.service)
-    if [[ -z $hits ]]; then
+    if ! curl -fsS --max-time 5 -o /dev/null "$_CS_METRICS" 2>/dev/null; then
       result_warn "Metriken nicht abrufbar ($_CS_METRICS) – Verarbeitung nicht prüfbar"
-    elif ((hits > 0)); then
-      result_ok "SSH-Journal wird verarbeitet ($hits Zeilen seit dem Start)"
     else
-      result_warn "Noch keine SSH-Logzeilen verarbeitet (frisch gestartet?)"
+      # The counter only appears after the first line was read.
+      hits=$(_cs_metric cs_journalctlsource_hits_total ssh.service)
+      if ((${hits:-0} > 0)); then
+        result_ok "SSH-Journal wird verarbeitet ($hits Zeilen seit dem letzten Start)"
+      else
+        result_warn "Seit dem letzten Start noch keine SSH-Logzeile verarbeitet – nach der nächsten SSH-Anmeldung erneut prüfen"
+      fi
     fi
   fi
 
