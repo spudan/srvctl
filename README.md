@@ -6,12 +6,13 @@ Es läuft lokal auf dem jeweiligen Server.
 ## Installation
 
 ```bash
+apt-get update && apt-get install -y git
 git clone https://github.com/spudan/srvctl.git /opt/srvctl
 chown -R root:root /opt/srvctl && chmod -R go-w /opt/srvctl
-ln -s /opt/srvctl/srvctl /usr/local/bin/srvctl
+ln -sfn /opt/srvctl/srvctl /usr/local/bin/srvctl
 ```
 
-Voraussetzungen: Debian oder Ubuntu, Bash ≥ 5, root-Rechte. Für das Menü wird `whiptail` gebraucht.
+Voraussetzungen: Debian oder Ubuntu, Bash ≥ 5, root-Rechte, `git` zum Holen und Aktualisieren (`git -C /opt/srvctl pull`). Für das Menü wird `whiptail` gebraucht.
 
 > **Sicherheit:** srvctl läuft als root und führt alle Dateien in seinem Verzeichnis aus.
 > Das Verzeichnis und alle übergeordneten Verzeichnisse dürfen deshalb nur für root beschreibbar sein.
