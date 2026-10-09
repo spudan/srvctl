@@ -201,6 +201,35 @@ check_conf() {
   fi
 }
 
+# --- Network -----------------------------------------------------------------
+
+# net_listeners - sockets listening on non-loopback addresses, one per line:
+# "PROTO PORT PROCESS PID ADDRESS" (DHCP clients are left out)
+net_listeners() {
+  ss -Htulnp 2>/dev/null | awk '{
+    proto = $1; local = $5
+    port = local; sub(/.*:/, "", port)
+    addr = local; sub(/:[^:]*$/, "", addr)
+    if (addr ~ /^(127\.|\[::1\]|::1)/ || addr ~ /%lo$/) next
+    if ($0 ~ /"(dhclient|dhcpcd|systemd-network)"/) next # DHCP clients, no services
+    proc = "?"; pid = "?"
+    if (match($0, /users:\(\("[^"]+"/)) proc = substr($0, RSTART + 9, RLENGTH - 10)
+    if (match($0, /pid=[0-9]+/)) pid = substr($0, RSTART + 4, RLENGTH - 4)
+    print proto, port, proc, pid, addr
+  }' | sort -u
+}
+
+# pkg_of_pid PID - Debian package owning the executable of PID (or "?")
+pkg_of_pid() {
+  local exe pkg
+  exe=$(readlink -f "/proc/$1/exe" 2>/dev/null) || {
+    echo "?"
+    return 0
+  }
+  pkg=$(dpkg -S "$exe" 2>/dev/null || dpkg -S "${exe#/usr}" 2>/dev/null) || pkg=""
+  echo "${pkg%%:*}" | grep . || echo "?"
+}
+
 # --- Firewall rules from other modules ---------------------------------------
 
 FIREWALL_RULES_FILE=/etc/srvctl/nftables/srvctl.nft

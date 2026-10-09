@@ -195,17 +195,7 @@ _fw_port_open() {
 }
 
 # Public listeners: "PROTO PORT PROCESS"
-_fw_listeners() {
-  ss -Htulnp 2>/dev/null | awk '{
-    proto = $1; local = $5
-    port = local; sub(/.*:/, "", port)
-    addr = local; sub(/:[^:]*$/, "", addr)
-    if (addr ~ /^(127\.|\[::1\]|::1)/ || addr ~ /%lo$/) next
-    if ($0 ~ /"(dhclient|dhcpcd|systemd-network)"/) next # DHCP clients, no services
-    proc = "?"; if (match($0, /users:\(\("[^"]+"/)) proc = substr($0, RSTART + 9, RLENGTH - 10)
-    print proto, port, proc
-  }' | sort -u
-}
+_fw_listeners() { net_listeners | awk '{ print $1, $2, $3 }' | sort -u; }
 
 # --- Checks --------------------------------------------------------------------
 

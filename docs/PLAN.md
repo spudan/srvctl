@@ -13,7 +13,7 @@ BSI IT-Grundschutz SYS.1.3, Mozilla/ssh-audit-Empfehlungen für SSH. Gemessen wi
 | 4 | `firewall` – nftables | – | umgesetzt, auf VPS getestet |
 | 5 | `crowdsec` – Brute-Force-Schutz, Blocklisten (statt fail2ban) | firewall | umgesetzt, auf VPS getestet |
 | 6 | `kernel` – sysctl, Kernelmodule, Mount-Optionen | – | umgesetzt, auf VPS getestet |
-| 7 | `services` – unnötige Dienste, offene Ports | – | geplant |
+| 7 | `services` – unnötige Dienste, offene Ports | – | umgesetzt, Test auf VPS offen |
 | 8 | `logging` – journald, auditd, Logrotation | – | geplant |
 | 9 | `apparmor` – AppArmor im Enforce-Modus | – | geplant |
 | 10 | `integrity` – AIDE, Paketintegrität | – | geplant |
@@ -241,6 +241,11 @@ Jede Änderung wird vor dem Neuladen mit `sshd -t` geprüft; neu geladen wird mi
 
 ### Mailserver
 - Falls exim4/postfix vorhanden: nur auf localhost lauschen. Mailversand nach außen ggf. späteres eigenes Modul.
+
+### Umsetzung
+- Unbekannte lauschende Dienste werden mit Paketname gemeldet (`pkg_of_pid`); erkannt über `net_listeners` (gemeinsam mit `firewall`).
+- Rollback stellt Dateien wieder her und hebt die Sperre (mask) auf; Dienste werden nicht wieder gestartet.
+- Rechte der cron-Verzeichnisse werden beim Rollback nicht zurückgesetzt (keine Dateien, nur Modus).
 
 ## 8. `logging`
 
