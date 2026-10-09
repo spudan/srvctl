@@ -221,6 +221,7 @@ run_action() {
     log_step "${mod}: ${action} – ${MOD_DESC[$mod]}"
     module_run "$mod" "$action"
     (($? == 0)) || failed[$mod]=1
+    if [[ $action == check ]]; then state_reverted_notice "$mod"; fi
   done
 
   if [[ $action != check ]] && ((!DRY_RUN)); then
@@ -240,6 +241,7 @@ modules_status() {
   for mod in "${mods[@]}"; do
     module_has_action "$mod" check || continue
     module_run "$mod" check >/dev/null 2>&1
+    state_reverted_notice "$mod" >/dev/null 2>&1
   done
   QUIET=$quiet_saved
 

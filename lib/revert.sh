@@ -116,6 +116,7 @@ revert_run() {
     CURRENT_MODULE=$mod
     backup_restore_run "$mod" "$run"
     CURRENT_MODULE=""
+    state_mark_reverted "$mod" "$run"
     if module_has_action "$mod" after_revert; then
       module_run "$mod" after_revert
     fi
