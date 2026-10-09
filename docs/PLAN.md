@@ -14,7 +14,7 @@ BSI IT-Grundschutz SYS.1.3, Mozilla/ssh-audit-Empfehlungen für SSH. Gemessen wi
 | 5 | `crowdsec` – Brute-Force-Schutz, Blocklisten (statt fail2ban) | firewall | umgesetzt, auf VPS getestet |
 | 6 | `kernel` – sysctl, Kernelmodule, Mount-Optionen | – | umgesetzt, auf VPS getestet |
 | 7 | `services` – unnötige Dienste, offene Ports | – | umgesetzt, Test auf VPS offen |
-| 8 | `logging` – journald, auditd, Logrotation | – | geplant |
+| 8 | `logging` – journald, auditd, Logrotation | – | umgesetzt, Test auf VPS offen |
 | 9 | `apparmor` – AppArmor im Enforce-Modus | – | geplant |
 | 10 | `integrity` – AIDE, Paketintegrität | – | geplant |
 | 11 | `audit` – Lynis-Prüfung (nur check) | – | geplant |
@@ -262,6 +262,12 @@ Jede Änderung wird vor dem Neuladen mit `sshd -t` geprüft; neu geladen wird mi
 
 ### Logrotation und Rechte
 - logrotate für `/var/log/srvctl.log` und `/var/log/sudo.log`; Logdateien nicht für alle lesbar (`640`).
+
+### Umsetzung
+- Regeln in `/etc/audit/rules.d/50-srvctl.rules`, geladen mit `augenrules --load`; Überwachungen nur für vorhandene Pfade,
+  setuid/setgid-Programme werden automatisch ermittelt; Syscall-Regeln für b64 und (x86_64) b32.
+- `auditd.conf`: 10 × 50 MB; bei vollem Speicher Debian-Standard (Warnung, dann Pause statt Herunterfahren).
+- `audit=1 audit_backlog_limit=8192` über `/etc/default/grub.d/srvctl-audit.cfg` (wirkt nach Neustart).
 
 ## 9. `apparmor`
 - `apparmor-utils` und `apparmor-profiles-extra` installieren; prüfen, ob AppArmor im Kernel aktiv ist.

@@ -65,7 +65,8 @@ svc_reload() { run_cmd systemctl reload-or-restart "$1"; }
 
 # --- Config files ------------------------------------------------------------
 # Lines are "KEY VALUE" (SEP=" ", e.g. sshd_config) or "KEY<SEP>VALUE"
-# (e.g. SEP="="). Keys are matched case-sensitively.
+# (e.g. SEP="=" or " = "). Blanks around SEP are ignored when matching; new
+# lines are written with SEP as given. Keys are matched case-sensitively.
 
 # shellcheck disable=SC2016
 _CONF_AWK_LIB='
@@ -73,17 +74,18 @@ function conf_match(s,    l, rest) {
   l = s; sub(/^[ \t]+/, "", l)
   if (substr(l, 1, length(K)) != K) return 0
   rest = substr(l, length(K) + 1)
-  if (S == " ") return (rest ~ /^[ \t]/)
+  if (T == "") return (rest ~ /^[ \t]/)
   sub(/^[ \t]+/, "", rest)
-  return (substr(rest, 1, length(S)) == S)
+  return (substr(rest, 1, length(T)) == T)
 }
 function conf_value(s,    l) {
   l = s; sub(/^[ \t]+/, "", l); l = substr(l, length(K) + 1)
-  if (S != " ") { sub(/^[ \t]+/, "", l); l = substr(l, length(S) + 1) }
+  if (T != "") { sub(/^[ \t]+/, "", l); l = substr(l, length(T) + 1) }
   sub(/^[ \t]+/, "", l); sub(/[ \t]+$/, "", l)
   return l
 }
-BEGIN { K = ENVIRON["_CK"]; V = ENVIRON["_CV"]; S = ENVIRON["_CS"] }
+# S: separator as written (e.g. "=", " = ", " "); T: S without blanks for matching
+BEGIN { K = ENVIRON["_CK"]; V = ENVIRON["_CV"]; S = ENVIRON["_CS"]; T = S; gsub(/[ \t]/, "", T) }
 '
 
 # conf_get FILE KEY [SEP] - prints the value of the first active KEY line
@@ -103,7 +105,7 @@ conf_set() {
   content=$(_CK=$key _CV=$value _CS=$sep awk "$_CONF_AWK_LIB"'
     { line[NR] = $0 }
     END {
-      out = (S == " ") ? K " " V : K S V
+      out = K S V
       for (i = 1; i <= NR; i++) if (conf_match(line[i])) { line[i] = out; done = 1 }
       if (!done) for (i = 1; i <= NR; i++) {
         c = line[i]
