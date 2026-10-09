@@ -28,7 +28,7 @@ _manifest_kind() {
 # backup_file PATH - saves PATH once per run before it gets modified
 backup_file() {
   local src
-  src=$(realpath -m -- "$1")
+  src=$(realpath -ms -- "$1") # -s: back up a symlink itself, not its target
   _manifest_kind "$BACKUP_RUN_DIR" "$src" >/dev/null && return 0
 
   if ((DRY_RUN)); then
@@ -69,7 +69,7 @@ _backup_runs() {
 # backup_restore PATH [RUN_ID] - restores PATH from the newest (or given) backup
 backup_restore() {
   local path run=${2:-} kind
-  path=$(realpath -m -- "$1")
+  path=$(realpath -ms -- "$1")
   if [[ -z $run ]]; then
     while read -r run; do
       _manifest_kind "${BACKUP_DIR}/${run}" "$path" >/dev/null && break

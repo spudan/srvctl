@@ -347,9 +347,7 @@ _base_check_restart() {
     result_warn "needrestart ist nicht wie konfiguriert eingestellt (BASE_NEEDRESTART=$mode)"
   fi
 
-  if [[ -e /run/reboot-required ]]; then
-    result_warn "Neustart erforderlich (/run/reboot-required)"
-  fi
+  local kernel_warned=0
   if cmd_exists needrestart; then
     local out ksta kcur kexp services
     out=$(needrestart -b 2>/dev/null)
@@ -357,7 +355,10 @@ _base_check_restart() {
     kcur=$(sed -n 's/^NEEDRESTART-KCUR: //p' <<<"$out")
     kexp=$(sed -n 's/^NEEDRESTART-KEXP: //p' <<<"$out")
     case $ksta in
-      2 | 3) result_warn "Neustart erforderlich: Kernel ${kexp:-neu} installiert, $kcur läuft" ;;
+      2 | 3)
+        result_warn "Neustart erforderlich: Kernel ${kexp:-neu} installiert, $kcur läuft"
+        kernel_warned=1
+        ;;
       1) result_ok "Laufender Kernel ist aktuell ($kcur)" ;;
     esac
     services=$(sed -n 's/^NEEDRESTART-SVC: //p' <<<"$out" | paste -sd ' ')
@@ -369,7 +370,11 @@ _base_check_restart() {
     newest=$(find /boot -maxdepth 1 -name 'vmlinuz-*' -printf '%f\n' 2>/dev/null | sort -V | tail -n 1)
     if [[ -n $newest && $newest != "vmlinuz-$(uname -r)" ]]; then
       result_warn "Neustart erforderlich: ${newest#vmlinuz-} installiert, $(uname -r) läuft"
+      kernel_warned=1
     fi
+  fi
+  if [[ -e /run/reboot-required ]] && ((!kernel_warned)); then
+    result_warn "Neustart erforderlich (/run/reboot-required)"
   fi
 }
 
@@ -559,9 +564,13 @@ _base_apply_locale() {
     run_cmd locale-gen
   fi
 
-  local wanted
+  local wanted current
   wanted=$(cfg_get BASE_LOCALE en_US.UTF-8)
-  conf_set /etc/default/locale LANG "$wanted" "="
+  current=$(conf_get /etc/default/locale LANG "=" 2>/dev/null | tr -d '"') || current=""
+  FILE_CHANGED=0
+  if [[ $current != "$wanted" ]]; then
+    conf_set /etc/default/locale LANG "$wanted" "="
+  fi
   if ((changed || FILE_CHANGED)); then
     result_ok "Locales eingerichtet (Systemsprache $wanted, gilt ab der nächsten Anmeldung)"
   fi
